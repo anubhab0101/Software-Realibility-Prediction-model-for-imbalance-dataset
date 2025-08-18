@@ -1,0 +1,99 @@
+# Core ML Libraries
+pandas>=1.5.0
+numpy>=1.21.0
+scikit-learn>=1.1.0
+scipy>=1.9.0
+
+# Imbalanced Learning
+imbalanced-learn>=0.9.0
+imblearn>=0.0
+
+# Advanced ML Algorithms
+xgboost>=1.6.0
+lightgbm>=3.3.0
+catboost>=1.1.0
+
+# Neural Networks and Deep Learning
+torch>=1.12.0
+tensorflow>=2.9.0
+transformers>=4.20.0
+pytorch-lightning>=1.6.0
+
+# Quantum Machine Learning
+qiskit>=0.37.0
+qiskit-machine-learning>=0.4.0
+pennylane>=0.24.0
+cirq>=1.0.0
+
+# Reinforcement Learning
+stable-baselines3>=1.6.0
+ray[rllib]>=2.0.0
+gym>=0.21.0
+gymnasium>=0.26.0
+
+# NLP Libraries
+spacy>=3.4.0
+nltk>=3.7.0
+gensim>=4.2.0
+textblob>=0.17.0
+
+# Blockchain and Cryptography
+cryptography>=37.0.0
+pycryptodome>=3.15.0
+web3>=5.30.0
+
+# Model Explainability
+shap>=0.41.0
+lime>=0.2.0
+eli5>=0.13.0
+
+# Data Processing and Visualization
+plotly>=5.9.0
+seaborn>=0.11.0
+matplotlib>=3.5.0
+bokeh>=2.4.0
+
+# Time Series Analysis
+statsmodels>=0.13.0
+prophet>=1.1.0
+pmdarima>=2.0.0
+
+# Feature Engineering
+feature-engine>=1.4.0
+featuretools>=1.11.0
+tsfresh>=0.19.0
+
+# Model Monitoring and MLOps
+mlflow>=1.27.0
+wandb>=0.12.0
+tensorboard>=2.9.0
+
+# Optimization
+optuna>=3.0.0
+hyperopt>=0.2.7
+scikit-optimize>=0.9.0
+
+# Distributed Computing
+dask>=2022.7.0
+joblib>=1.1.0
+multiprocessing-logging>=0.3.0
+
+# Utilities
+tqdm>=4.64.0
+requests>=2.28.0
+python-dotenv>=0.20.0
+pyyaml>=6.0
+jsonschema>=4.7.0
+
+# FastAPI and Web Framework
+fastapi>=0.78.0
+uvicorn>=0.18.0
+websockets>=10.3
+python-multipart>=0.0.5
+
+# Testing and Development
+pytest>=7.1.0
+pytest-asyncio>=0.19.0
+black>=22.6.0
+flake8>=5.0.0
+mypy>=0.971

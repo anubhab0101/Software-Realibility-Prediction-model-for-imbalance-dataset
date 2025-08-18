@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Software Reliability Prediction - ML Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#1976D2',
+                        secondary: '#388E3C',
+                        accent: '#FF9800',
+                        neutral: {
+                            50: '#FAFAFA',
+                            100: '#F5F5F5',
+                            200: '#EEEEEE',
+                            300: '#E0E0E0',
+                            400: '#BDBDBD',
+                            500: '#9E9E9E',
+                            600: '#757575',
+                            700: '#616161',
+                            800: '#424242',
+                            900: '#212121'
+                        }
+                    },
+                    fontFamily: {
+                        'inter': ['Inter', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        };
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-neutral-50 font-inter">
+    <!-- @COMPONENT: Header -->
+    <header class="bg-white shadow-sm border-b border-neutral-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0 flex items-center">
+                        <i class="fas fa-brain text-primary text-2xl mr-3"></i>
+                        <h1 class="text-xl font-semibold text-neutral-800">Software Reliability Prediction</h1>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button class="text-neutral-600 hover:text-neutral-800 transition-colors">
+                        <i class="fas fa-question-circle text-lg"></i>
+                    </button>
+                    <button class="text-neutral-600 hover:text-neutral-800 transition-colors">
+                        <i class="fas fa-user-circle text-lg"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+    <!-- @END_COMPONENT: Header -->
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- @COMPONENT: MainDashboard -->
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            
+            <!-- @COMPONENT: LeftSidebar -->
+            <div class="lg:col-span-1 space-y-6">
+                
+                <!-- Data Upload Section -->
+                <div class="bg-white rounded-lg shadow-sm border border-neutral-200 p-6">
+                    <h3 class="text-lg font-semibold text-neutral-800 mb-4 flex items-center">
+                        <i class="fas fa-upload text-primary mr-2"></i>
+                        Data Upload
+                    </h3>
+                    
+                    <!-- Upload Area -->
+                    <div class="border-2 border-dashed border-neutral-300 rounded-lg p-6 text-center hover:border-primary transition-colors cursor-pointer" data-implementation="FileUpload component with validation">
+                        <i class="fas fa-cloud-upload-alt text-neutral-400 text-3xl mb-3"></i>
+                        <p class="text-sm text-neutral-600 mb-2">Drop CSV file here or</p>
+                        <button class="text-primary hover:text-blue-700 font-medium text-sm">browse files</button>
+                        <p class="text-xs text-neutral-500 mt-2">Max file size: 100MB</p>
+                    </div>
+                    
+                    <!-- Sample Dataset -->
+                    <div class="mt-4 p-3 bg-neutral-50 rounded-md">
+                        <p class="text-sm text-neutral-700 mb-2">Try with sample data:</p>
+                        <button class="text-primary hover:text-blue-700 text-sm font-medium flex items-center" data-event="click:loadSampleData">
+                            <i class="fas fa-database mr-1"></i>
+                            NASA Defect Dataset
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Data Preprocessing -->
+                <div class="bg-white rounded-lg shadow-sm border border-neutral-200 p-6">
+                    <h3 class="text-lg font-semibold text-neutral-800 mb-4 flex items-center">
+                        <i class="fas fa-cogs text-secondary mr-2"></i>
+                        Preprocessing
+                    </h3>
+                    
+                    <!-- Imbalance Handling -->
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-neutral-700 mb-2">Imbalance Handling</label>
+                            <select class="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent" data-bind="selectedSamplingMethod">
+                                <option value="none">None</option>
+                                <option value="smote" selected>SMOTE</option>
+                                <option value="adasyn">ADASYN</option>
+                                <option value="borderline">BorderlineSMOTE</option>
+                                <option value="undersampling">Random Undersampling</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-neutral-700 mb-2">Feature Selection</label>
+                            <div class="space-y-2">
+                                <label class="flex items-center">
+                                    <input type="checkbox" class="rounded border-neutral-300 text-primary focus:ring-primary" checked data-bind="autoFeatureSelection">
+                                    <span class="ml-2 text-sm text-neutral-700">Auto Feature Selection</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="checkbox" class="rounded border-neutral-300 text-primary focus:ring-primary" data-bind="featureEngineering">
+                                    <span class="ml-2 text-sm text-neutral-700">Feature Engineering</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Model Selection -->
+                <div class="bg-white rounded-lg shadow-sm border border-neutral-200 p-6">
+                    <h3 class="text-lg font-semibold text-neutral-800 mb-4 flex items-center">
+                        <i class="fas fa-brain text-accent mr-2"></i>
+                        Model Selection
+                    </h3>
+                    
+                    <div class="space-y-3">
+                        <label class="flex items-center">
+                            <input type="checkbox" class="rounded border-neutral-300 text-primary focus:ring-primary" checked data-bind="models.randomForest">
+                            <span class="ml-2 text-sm text-neutral-700">Random Forest</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" class="rounded border-neutral-300 text-primary focus:ring-primary" data-bind="models.svm">
+                            <span class="ml-2 text-sm text-neutral-700">SVM</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" class="rounded border-neutral-300 text-primary focus:ring-primary" data-bind="models.neuralNetwork">
+                            <span class="ml-2 text-sm text-neutral-700">Neural Network</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" class="rounded border-neutral-300 text-primary focus:ring-primary" data-bind="models.xgboost">
+                            <span class="ml-2 text-sm text-neutral-700">XGBoost</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" class="rounded border-neutral-300 text-primary focus:ring-primary" data-bind="models.ensemble">
+                            <span class="ml-2 text-sm text-neutral-700">Ensemble Methods</span>
+                        </label>
+                    </div>
+                    
+                    <div class="mt-4 p-3 bg-blue-50 rounded-md">
+                        <label class="flex items-center">
+                            <input type="checkbox" class="rounded border-neutral-300 text-primary focus:ring-primary" data-bind="hyperparameterTuning">
+                            <span class="ml-2 text-sm text-neutral-700">Auto Hyperparameter Tuning</span>
+                        </label>
+                    </div>
+                    
+                    <button class="w-full mt-4 bg-primary text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium" data-event="click:startTraining">
+                        <i class="fas fa-play mr-2"></i>
+                        Start Training
+                    </button>
+                </div>
+            </div>
+            <!-- @END_COMPONENT: LeftSidebar -->
+
+            <!-- @COMPONENT: MainContent -->
+            <div class="lg:col-span-3 space-y-6">
+                
+                <!-- Training Progress -->
+                <div class="bg-white rounded-lg shadow-sm border border-neutral-200 p-6" data-mock="true">
+                    <h3 class="text-lg font-semibold text-neutral-800 mb-4 flex items-center">
+                        <i class="fas fa-chart-line text-primary mr-2"></i>
+                        Training Progress
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div class="text-center p-4 bg-green-50 rounded-lg">
+                            <div class="text-2xl font-bold text-secondary" data-bind="trainingProgress.completed">3</div>
+                            <div class="text-sm text-neutral-600">Models Completed</div>
+                        </div>
+                        <div class="text-center p-4 bg-yellow-50 rounded-lg">
+                            <div class="text-2xl font-bold text-accent" data-bind="trainingProgress.inProgress">1</div>
+                            <div class="text-sm text-neutral-600">In Progress</div>
+                        </div>
+                        <div class="text-center p-4 bg-blue-50 rounded-lg">
+                            <div class="text-2xl font-bold text-primary" data-bind="trainingProgress.queued">1</div>
+                            <div class="text-sm text-neutral-600">Queued</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Progress Bars -->
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-medium text-neutral-700">Random Forest</span>
+                            <span class="text-sm text-secondary"><i class="fas fa-check mr-1"></i>Complete</span>
+                        </div>
+                        <div class="w-full bg-neutral-200 rounded-full h-2">
+                            <div class="bg-secondary h-2 rounded-full" style="width: 100%"></div>
+                        </div>
+                        
+                        <div class="flex items-center justify-between mt-4">
+                            <span class="text-sm font-medium text-neutral-700">XGBoost</span>
+                            <span class="text-sm text-accent">Training... 67%</span>
+                        </div>
+                        <div class="w-full bg-neutral-200 rounded-full h-2">
+                            <div class="bg-accent h-2 rounded-full" style="width: 67%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Performance Metrics -->
+                <div class="bg-white rounded-lg shadow-sm border border-neutral-200 p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h3 class="text-lg font-semibold text-neutral-800 flex items-center">
+                            <i class="fas fa-chart-bar text-primary mr-2"></i>
+                            Performance Metrics
+                        </h3>
+                        <div class="flex space-x-2">
+                            <button class="px-3 py-1 text-sm bg-primary text-white rounded-md">Individual</button>
+                            <button class="px-3 py-1 text-sm text-neutral-600 hover:bg-neutral-100 rounded-md">Comparison</button>
+                            <button class="px-3 py-1 text-sm text-neutral-600 hover:bg-neutral-100 rounded-md">Ensemble</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Metrics Grid -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="text-center p-4 bg-neutral-50 rounded-lg">
+                            <div class="text-xl font-bold text-neutral-800" data-bind="metrics.f1Score">0.847</div>
+                            <div class="text-sm text-neutral-600">F1-Score</div>
+                        </div>
+                        <div class="text-center p-4 bg-neutral-50 rounded-lg">
+                            <div class="text-xl font-bold text-neutral-800" data-bind="metrics.mcc">0.712</div>
+                            <div class="text-sm text-neutral-600">MCC</div>
+                        </div>
+                        <div class="text-center p-4 bg-neutral-50 rounded-lg">
+                            <div class="text-xl font-bold text-neutral-800" data-bind="metrics.rocAuc">0.923</div>
+                            <div class="text-sm text-neutral-600">ROC-AUC</div>
+                        </div>
+                        <div class="text-center p-4 bg-neutral-50 rounded-lg">
+                            <div class="text-xl font-bold text-neutral-800" data-bind="metrics.brierScore">0.156</div>
+                            <div class="text-sm text-neutral-600">Brier Score</div>
+                        </div>
+                    </div>
+
+                    <!-- Visualization Tabs -->
+                    <div class="border-b border-neutral-200 mb-4">
+                        <nav class="-mb-px flex space-x-8">
+                            <button class="border-b-2 border-primary text-primary py-2 px-1 text-sm font-medium">
+                                Confusion Matrix
+                            </button>
+                            <button class="border-b-2 border-transparent text-neutral-500 hover:text-neutral-700 py-2 px-1 text-sm font-medium">
+                                PR Curve
+                            </button>
+                            <button class="border-b-2 border-transparent text-neutral-500 hover:text-neutral-700 py-2 px-1 text-sm font-medium">
+                                ROC Curve
+                            </button>
+                            <button class="border-b-2 border-transparent text-neutral-500 hover:text-neutral-700 py-2 px-1 text-sm font-medium">
+                                Feature Importance
+                            </button>
+                        </nav>
+                    </div>
+
+                    <!-- Confusion Matrix Visualization -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div>
+                            <!-- Mock confusion matrix with actual visual representation -->
+                            <div class="bg-neutral-50 p-4 rounded-lg">
+                                <h4 class="text-sm font-medium text-neutral-700 mb-3 text-center">Confusion Matrix</h4>
+                                <div class="grid grid-cols-3 gap-1 w-fit mx-auto">
+                                    <!-- Headers -->
+                                    <div></div>
+                                    <div class="text-xs text-center text-neutral-600 py-1">Predicted 0</div>
+                                    <div class="text-xs text-center text-neutral-600 py-1">Predicted 1</div>
+                                    
+                                    <!-- Row 1 -->
+                                    <div class="text-xs text-neutral-600 py-2 pr-2">Actual 0</div>
+                                    <div class="bg-green-100 text-center py-2 px-3 text-sm font-medium rounded">847</div>
+                                    <div class="bg-red-100 text-center py-2 px-3 text-sm font-medium rounded">23</div>
+                                    
+                                    <!-- Row 2 -->
+                                    <div class="text-xs text-neutral-600 py-2 pr-2">Actual 1</div>
+                                    <div class="bg-red-100 text-center py-2 px-3 text-sm font-medium rounded">15</div>
+                                    <div class="bg-green-100 text-center py-2 px-3 text-sm font-medium rounded">112</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Performance Summary -->
+                        <div class="space-y-4">
+                            <div class="p-4 bg-green-50 rounded-lg">
+                                <div class="text-sm font-medium text-secondary">Precision</div>
+                                <div class="text-2xl font-bold text-secondary" data-bind="metrics.precision">0.829</div>
+                            </div>
+                            <div class="p-4 bg-blue-50 rounded-lg">
+                                <div class="text-sm font-medium text-primary">Recall</div>
+                                <div class="text-2xl font-bold text-primary" data-bind="metrics.recall">0.882</div>
+                            </div>
+                            <div class="p-4 bg-purple-50 rounded-lg">
+                                <div class="text-sm font-medium text-purple-600">Specificity</div>
+                                <div class="text-2xl font-bold text-purple-600" data-bind="metrics.specificity">0.974</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Model Interpretability -->
+                <div class="bg-white rounded-lg shadow-sm border border-neutral-200 p-6">
+                    <h3 class="text-lg font-semibold text-neutral-800 mb-4 flex items-center">
+                        <i class="fas fa-search text-accent mr-2"></i>
+                        Model Interpretability
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Feature Importance -->
+                        <div>
+                            <h4 class="text-sm font-medium text-neutral-700 mb-3">Feature Importance (SHAP)</h4>
+                            <div class="space-y-2">
+                                <!-- @MAP: features.map(feature => ( -->
+                                <div class="flex items-center justify-between p-2 bg-neutral-50 rounded" data-mock="true">
+                                    <span class="text-sm text-neutral-700">Cyclomatic Complexity</span>
+                                    <div class="flex items-center">
+                                        <div class="w-20 bg-neutral-200 rounded-full h-2 mr-2">
+                                            <div class="bg-primary h-2 rounded-full" style="width: 85%"></div>
+                                        </div>
+                                        <span class="text-xs text-neutral-600">0.342</span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-between p-2 bg-neutral-50 rounded" data-mock="true">
+                                    <span class="text-sm text-neutral-700">Lines of Code</span>
+                                    <div class="flex items-center">
+                                        <div class="w-20 bg-neutral-200 rounded-full h-2 mr-2">
+                                            <div class="bg-primary h-2 rounded-full" style="width: 72%"></div>
+                                        </div>
+                                        <span class="text-xs text-neutral-600">0.289</span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-between p-2 bg-neutral-50 rounded" data-mock="true">
+                                    <span class="text-sm text-neutral-700">Halstead Volume</span>
+                                    <div class="flex items-center">
+                                        <div class="w-20 bg-neutral-200 rounded-full h-2 mr-2">
+                                            <div class="bg-primary h-2 rounded-full" style="width: 58%"></div>
+                                        </div>
+                                        <span class="text-xs text-neutral-600">0.234</span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-between p-2 bg-neutral-50 rounded" data-mock="true">
+                                    <span class="text-sm text-neutral-700">Branch Count</span>
+                                    <div class="flex items-center">
+                                        <div class="w-20 bg-neutral-200 rounded-full h-2 mr-2">
+                                            <div class="bg-primary h-2 rounded-full" style="width: 45%"></div>
+                                        </div>
+                                        <span class="text-xs text-neutral-600">0.178</span>
+                                    </div>
+                                </div>
+                                <!-- @END_MAP )) -->
+                            </div>
+                        </div>
+                        
+                        <!-- LIME Explanation -->
+                        <div>
+                            <h4 class="text-sm font-medium text-neutral-700 mb-3">LIME Explanation (Sample Instance)</h4>
+                            <div class="bg-neutral-50 p-4 rounded-lg">
+                                <div class="text-center mb-3">
+                                    <span class="text-lg font-bold text-red-600" data-bind="prediction.class">Defect Predicted</span>
+                                    <div class="text-sm text-neutral-600">Confidence: <span data-bind="prediction.confidence">87.3%</span></div>
+                                </div>
+                                <div class="space-y-2">
+                                    <div class="flex items-center justify-between text-sm">
+                                        <span class="text-neutral-700">Cyclomatic Complexity > 15</span>
+                                        <span class="text-red-600 font-medium">+0.23</span>
+                                    </div>
+                                    <div class="flex items-center justify-between text-sm">
+                                        <span class="text-neutral-700">LOC > 500</span>
+                                        <span class="text-red-600 font-medium">+0.18</span>
+                                    </div>
+                                    <div class="flex items-center justify-between text-sm">
+                                        <span class="text-neutral-700">Branch Coverage < 80%</span>
+                                        <span class="text-red-600 font-medium">+0.12</span>
+                                    </div>
+                                    <div class="flex items-center justify-between text-sm">
+                                        <span class="text-neutral-700">Comment Ratio > 0.2</span>
+                                        <span class="text-green-600 font-medium">-0.08</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Model Monitoring -->
+                <div class="bg-white rounded-lg shadow-sm border border-neutral-200 p-6">
+                    <h3 class="text-lg font-semibold text-neutral-800 mb-4 flex items-center">
+                        <i class="fas fa-chart-line text-secondary mr-2"></i>
+                        Model Monitoring & Drift Detection
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div class="text-center p-4 border border-green-200 bg-green-50 rounded-lg">
+                            <i class="fas fa-check-circle text-green-600 text-xl mb-2"></i>
+                            <div class="text-sm font-medium text-green-800">Model Health</div>
+                            <div class="text-xs text-green-600">Stable</div>
+                        </div>
+                        <div class="text-center p-4 border border-yellow-200 bg-yellow-50 rounded-lg">
+                            <i class="fas fa-exclamation-triangle text-yellow-600 text-xl mb-2"></i>
+                            <div class="text-sm font-medium text-yellow-800">Data Drift</div>
+                            <div class="text-xs text-yellow-600">Low Alert</div>
+                        </div>
+                        <div class="text-center p-4 border border-blue-200 bg-blue-50 rounded-lg">
+                            <i class="fas fa-clock text-blue-600 text-xl mb-2"></i>
+                            <div class="text-sm font-medium text-blue-800">Last Updated</div>
+                            <div class="text-xs text-blue-600">2 hours ago</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Mock time-series visualization -->
+                    <div class="bg-neutral-50 p-4 rounded-lg">
+                        <h4 class="text-sm font-medium text-neutral-700 mb-3">Performance Over Time</h4>
+                        <div class="h-32 bg-gradient-to-r from-blue-100 via-blue-50 to-green-100 rounded flex items-end justify-between px-2">
+                            <!-- Mock chart bars -->
+                            <div class="w-2 bg-primary rounded-t" style="height: 60%"></div>
+                            <div class="w-2 bg-primary rounded-t" style="height: 75%"></div>
+                            <div class="w-2 bg-primary rounded-t" style="height: 80%"></div>
+                            <div class="w-2 bg-primary rounded-t" style="height: 78%"></div>
+                            <div class="w-2 bg-primary rounded-t" style="height: 85%"></div>
+                            <div class="w-2 bg-yellow-500 rounded-t" style="height: 70%"></div>
+                            <div class="w-2 bg-yellow-500 rounded-t" style="height: 72%"></div>
+                        </div>
+                        <div class="flex justify-between text-xs text-neutral-500 mt-2">
+                            <span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export & Actions -->
+                <div class="bg-white rounded-lg shadow-sm border border-neutral-200 p-6">
+                    <h3 class="text-lg font-semibold text-neutral-800 mb-4 flex items-center">
+                        <i class="fas fa-download text-accent mr-2"></i>
+                        Export & Reports
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <button class="flex items-center justify-center p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors" data-event="click:exportModel">
+                            <i class="fas fa-cube text-primary mr-2"></i>
+                            <span class="text-sm font-medium">Export Models</span>
+                        </button>
+                        <button class="flex items-center justify-center p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors" data-event="click:downloadReport">
+                            <i class="fas fa-file-pdf text-red-600 mr-2"></i>
+                            <span class="text-sm font-medium">Analysis Report</span>
+                        </button>
+                        <button class="flex items-center justify-center p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors" data-event="click:exportExplanations">
+                            <i class="fas fa-lightbulb text-yellow-600 mr-2"></i>
+                            <span class="text-sm font-medium">Explanations</span>
+                        </button>
+                    </div>
+                </div>
+                
+            </div>
+            <!-- @END_COMPONENT: MainContent -->
+            
+        </div>
+        <!-- @END_COMPONENT: MainDashboard -->
+    </div>
+
+    <!-- @COMPONENT: FloatingActions -->
+    <div class="fixed bottom-6 right-6 space-y-3">
+        <button class="bg-primary text-white p-3 rounded-full shadow-lg hover:bg-blue-700 transition-colors" data-event="click:openHelp">
+            <i class="fas fa-question text-lg"></i>
+        </button>
+        <button class="bg-secondary text-white p-3 rounded-full shadow-lg hover:bg-green-700 transition-colors" data-event="click:quickTrain">
+            <i class="fas fa-rocket text-lg"></i>
+        </button>
+    </div>
+    <!-- @END_COMPONENT: FloatingActions -->
+
+    <script>
+        // TODO: Implement ML model training pipeline, real-time progress tracking, and visualization updates
+        // TODO: Add WebSocket connections for real-time training progress
+        // TODO: Implement SHAP and LIME integration for model explanations
+        // TODO: Add model comparison and ensemble functionality
+        // TODO: Implement drift detection algorithms and alerts
+        // TODO: Add export functionality for models and reports
+        
+        (function() {
+            'use strict';
+            
+            // Initialize dashboard state
+            const dashboardState = {
+                trainingInProgress: false,
+                selectedModels: ['randomForest'],
+                currentStep: 'upload'
+            };
+            
+            // Simulate training progress updates
+            function simulateTrainingProgress() {
+                // This would be replaced with actual WebSocket or polling logic
+                console.log('Training progress simulation started');
+            }
+            
+            // Handle file upload validation
+            function validateUploadedFile(file) {
+                const validTypes = ['text/csv', 'application/csv'];
+                const maxSize = 100 * 1024 * 1024; // 100MB
+                
+                if (!validTypes.includes(file.type)) {
+                    console.warn('Invalid file type. Please upload a CSV file.');
+                    return false;
+                }
+                
+                if (file.size > maxSize) {
+                    console.warn('File size exceeds 100MB limit.');
+                    return false;
+                }
+                
+                return true;
+            }
+            
+            // Initialize tooltip functionality
+            function initializeTooltips() {
+                // Add tooltips for technical terms and metrics
+                console.log('Tooltips initialized for technical terms');
+            }
+            
+            // Initialize the dashboard
+            function initDashboard() {
+                console.log('Software Reliability Prediction Dashboard initialized');
+                initializeTooltips();
+            }
+            
+            // Start initialization when DOM is ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initDashboard);
+            } else {
+                initDashboard();
+            }
+        })();
+    </script>
+</body>
+</html>
