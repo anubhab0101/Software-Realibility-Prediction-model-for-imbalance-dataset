@@ -1,0 +1,225 @@
+Software Reliability Prediction Model for Imbalanced Datasets — Detailed Documentation
+
+1) Project Overview
+- Purpose: End-to-end platform to predict software defect proneness (software reliability) with emphasis on imbalanced datasets.
+- Components:
+  - Web client for data upload, model configuration, training, and visualization
+  - Node.js/TypeScript backend orchestrating data storage, Python ML execution, and ancillary services
+  - Python ML backend implementing preprocessing, resampling, model training, evaluation, and explainability
+  - Optional/auxiliary modules: federated learning, quantum ML experiments, reinforcement learning, blockchain-based logging/monitoring
+
+2) Tech Stack
+- Frontend (client/)
+  - React + TypeScript
+  - Vite for dev server and bundling
+  - Tailwind CSS for utility-first styling
+  - shadcn/ui-derived component library (e.g., accordion, dialog, form, table)
+  - React Query (@tanstack/react-query) for data fetching & caching
+  - Lucide icons
+- Backend (server/)
+  - Node.js + TypeScript
+  - Express-style HTTP API (see server/index.ts, routes.ts)
+  - Child process bridge to Python using spawn()
+  - File storage for uploaded datasets and trained model artifacts
+  - WebSockets/helpers for reactive features where applicable
+- Python ML (ml_backend.py)
+  - pandas, numpy, scikit-learn for data handling and classical ML
+  - imbalanced-learn (SMOTE, ADASYN, BorderlineSMOTE, RandomUnderSampler)
+  - BalancedRandomForestClassifier (from imblearn.ensemble)
+  - XGBoost; (LightGBM optional)
+  - SHAP, LIME for explainability
+  - Optional: Qiskit for quantum experiments; stable-baselines3 for RL; TextBlob/transformers/nltk for NLP
+- Data & Artifacts
+  - Example datasets in data/
+  - Trained models serialized to models/ (pickle or JSON depending on training path)
+
+3) System Architecture & Flow
+- Upload/Selection: Users upload/select a CSV dataset via the client UI.
+- Configuration: Users choose algorithm and an imbalance handling method (sampling technique) in client/src/pages/model-training.tsx.
+- Orchestration: The backend ML service spawns Python (ml_backend.py) with the operation (train_model, analyze_dataset, explain_model) and JSON config.
+- Training pipeline (Python path):
+  1. Load dataset (by default, example uses data/nasa_defect_dataset.csv)
+  2. Split features/target (default target: defects)
+  3. Apply chosen sampling method to address class imbalance
+  4. Train/validation split with stratification
+  5. Standardize features
+  6. Optional feature selection (SelectKBest)
+  7. Model creation (RandomForest, SVM, MLP, XGBoost, BalancedRF)
+  8. Optional hyperparameter tuning with GridSearchCV (scoring=f1)
+  9. Train final model; evaluate on held-out test set
+  10. Save model, scaler, and selector
+- Results are returned to the Node backend and surfaced in the UI (accuracy, precision, recall, F1, MCC, confusion matrix, feature importance).
+- Explainability route can produce SHAP and LIME outputs for interpretability.
+
+4) Imbalanced Dataset Problem & Project Strategy
+- Problem: In software defect datasets, defective modules are typically rarer than non-defective ones. Training without consideration leads to biased models that predict the majority class, yielding misleading accuracy and low recall for the minority (defect) class.
+- Strategy: Integrate resampling techniques and imbalance-aware ensembles, tune with minority-friendly metrics, and report metrics robust to imbalance.
+
+5) Dataset Analysis (ml_backend.analyze_dataset)
+- Inspects numeric/categorical columns
+- Suggests a target based on column names containing {defect, bug, issue, fault, error}; otherwise last numeric column
+- Computes:
+  - Missing values ratio
+  - Imbalance ratio (for binary targets)
+  - Outlier percentage using IQR
+
+6) Class Imbalance Handling (Implemented Methods)
+- Over-sampling
+  - SMOTE: Synthetic Minority Over-sampling Technique creates synthetic samples based on nearest neighbors of minority class.
+  - ADASYN: Adaptive synthetic sampling focuses on harder-to-learn minority samples by generating more samples where minority density is low.
+  - Borderline-SMOTE: Generates samples near the decision boundary where misclassification is likely.
+- Under-sampling
+  - RandomUnderSampler: Randomly removes majority-class samples to balance the class distribution.
+- Imbalance-aware ensemble
+  - BalancedRandomForestClassifier: Adjusts class sampling within each tree to mitigate imbalance.
+
+7) Where and How Balancing Occurs
+- In ml_backend.py → MLBackend._apply_sampling(X, y, technique):
+  - Chooses sampler based on hyperparameters.sampling_technique
+  - Applies sampler.fit_resample(X, y) to produce X_resampled, y_resampled
+- In MLBackend.train_model():
+  - Sampling is applied prior to the train/test split; split is stratified on the resampled labels.
+  - Note: In general practice, to avoid information leakage one typically splits first, then applies sampling within the training fold only. The current implementation applies sampling globally before splitting.
+
+8) End-to-End Training Procedure (as implemented)
+- Inputs
+  - algorithm ∈ {random_forest, svm, neural_network, xgboost, ensemble}
+  - hyperparameters include: sampling_technique ∈ {none, smote, adasyn, borderline_smote, random_undersample}, cross_validation (bool), feature_selection (“auto” or other)
+- Steps
+  1. Load CSV
+  2. Identify target column (“defects” by default)
+  3. Apply chosen resampling method (or none)
+  4. Split 80/20 with stratify=y_resampled
+  5. Scale features (StandardScaler)
+  6. Optional SelectKBest (ANOVA F-test) to k = min(10, p)
+  7. Create model:
+     - RandomForestClassifier
+     - SVC (probability=True)
+     - MLPClassifier
+     - XGBClassifier
+     - BalancedRandomForestClassifier
+  8. Optional GridSearchCV with scoring=f1 and 5-fold CV
+  9. Train final model on selected features
+  10. Predict on test set → y_pred, y_proba
+  11. Compute metrics (accuracy, precision, recall, f1_score, MCC; AUC if proba)
+  12. Save pickle with model, scaler, selector, and metadata to models/<modelId>.pkl
+
+9) Evaluation Metrics (for Imbalanced Data)
+- F1-score (binary): balances precision and recall; used as GridSearch scoring
+- Precision/Recall: minority-class focus; recall emphasizes catching defects
+- MCC (Matthews Correlation Coefficient): robust single-value metric for imbalance
+- AUC-ROC (if probabilities available)
+- Confusion matrix
+
+10) Feature Selection & Scaling
+- Scaling: StandardScaler applied to all features post-split
+- Selection: SelectKBest(f_classif) with k=min(10, p) when feature_selection=auto
+- Alternative selectors (e.g., RFE) are import-ready but not wired into the training path by default
+
+11) Model Explainability
+- SHAP
+  - TreeExplainer for tree-based models; LinearExplainer fallback
+  - Produces per-feature attributions
+- LIME
+  - LimeTabularExplainer to show local feature contributions for sample instances
+- Use: MLBackend.explain_model(model_id) loads the persisted model and returns SHAP values, feature names, and a LIME explanation list.
+
+12) Auxiliary Modules (Optional/Exploratory)
+- Quantum ML (Qiskit)
+  - Demonstration circuits for QAOA, VQE, QSVM, QNN
+  - Returns simulated metrics (circuit depth, counts, etc.)
+- Reinforcement Learning (stable-baselines3)
+  - Simulated agent training loop with progress logs and final performance stub
+- NLP (TextBlob/transformers/nltk)
+  - Text analysis for software documentation: sentiment, complexity, basic entities, topics, simple hash embeddings
+- Blockchain & Monitoring
+  - Backend service scaffolding for blockchain logging/auditing, intended to capture provenance and model lifecycle events
+
+13) Frontend UX for Imbalance Handling
+- Page: client/src/pages/model-training.tsx
+- Users select:
+  - Dataset
+  - Algorithm
+  - Imbalance Handling (No Sampling, SMOTE, ADASYN, Borderline-SMOTE, Random Undersampling)
+- Starts training via POST /api/models/train; results displayed under “Trained Models” (status + metrics)
+
+14) Reproducible Procedure for Balancing & Training (Suggested for Paper/Presentation)
+- Dataset: CSV with software metrics and a binary label column (e.g., defects)
+- Steps:
+  1. Dataset audit: report row/column counts, missingness, imbalance ratio, outlier percentage
+  2. Target selection: choose defect label column; encode if needed
+  3. Baseline split: Define train/test split (stratified)
+  4. Resampling strategy (pick ONE based on data structure):
+     - SMOTE: default; use k-neighbors=5 and random_state=42
+     - ADASYN: use when minority manifold is highly nonuniform
+     - Borderline-SMOTE: use to strengthen boundary region
+     - RandomUnderSampler: use when dataset is large and majority redundancy is high
+     - BalancedRandomForest: use when you prefer algorithm-level handling over explicit resampling
+  5. Train-time processing on training fold:
+     - Standardize features (fit on train, transform train/test)
+     - Optional univariate feature selection (SelectKBest)
+  6. Model training & tuning:
+     - Choose RF/SVM/MLP/XGBoost/BalancedRF
+     - Hyperparameter search via GridSearchCV (scoring=f1, 5-fold)
+  7. Evaluation on untouched test set:
+     - Report F1 (primary), Precision, Recall, MCC, AUC-ROC, Confusion Matrix
+  8. Interpretability:
+     - Compute SHAP values for global importance
+     - Provide LIME explanation for representative instances
+  9. Persist artifacts: model, scaler, selector, and provenance metadata
+- Note: The shipped implementation applies resampling prior to split. For strict methodological purity in publications, split first and apply resampling inside each training fold only.
+
+15) Recommended Reporting Template (Slides/Paper)
+- Data
+  - Source, size (rows/columns), feature types, target prevalence (minority %)
+  - Missing values handling and outliers summary
+- Methods
+  - Train/test split strategy; stratification
+  - Chosen balancing method and parameters
+  - Preprocessing: scaling, feature selection
+  - Models and hyperparameters; tuning protocol and metric
+- Results
+  - Primary: F1, Recall, Precision, MCC
+  - Secondary: AUC-ROC, Confusion matrix
+  - Calibration or PR curves if applicable
+- Interpretability
+  - Top SHAP features; exemplar LIME explanations
+- Ablations (optional)
+  - Compare SMOTE vs ADASYN vs Borderline-SMOTE vs Under-sampling vs BalancedRF
+  - Sensitivity to k in SMOTE; class weight baselines
+- Threats to Validity
+  - Data leakage risks and controls
+  - Dataset representativeness and metric selection bias
+
+16) Practical Tips for Choosing a Balancing Method
+- Start with SMOTE; it is widely effective for tabular binary classification
+- Prefer Borderline-SMOTE when decision boundary is noisy and minority is concentrated near the boundary
+- Use ADASYN if minority density varies widely and you need targeted synthesis
+- Use Random Under-sampling if the dataset is large and the majority class is redundant; monitor information loss
+- Consider BalancedRandomForest when you want an integrated algorithmic approach with less preprocessing complexity
+
+17) Limitations & Future Work
+- Current training path resamples before splitting; revise to split-first to avoid leakage in strict experimental settings
+- Add class-weighted learners (e.g., class_weight=balanced for SVM/LogReg) and focal loss variants
+- Add calibration (Platt scaling/Isotonic) for probability quality
+- Expand AutoML search (Optuna) and include PR-AUC as an optimization target
+- Add per-fold resampling inside CV for more faithful selection
+
+18) References
+- Chawla et al., “SMOTE: Synthetic Minority Over-sampling Technique”
+- He et al., “ADASYN: Adaptive Synthetic Sampling Approach for Imbalanced Learning”
+- Sun et al., “Borderline-SMOTE: A New Over-Sampling Method in Imbalanced Data Sets Learning”
+- Branco et al., “A Survey of Predictive Modeling on Imbalanced Domains”
+- Saito & Rehmsmeier, “The Precision-Recall Plot Is More Informative than the ROC Plot”
+
+19) How to Cite This Implementation Detail in a Paper (Example)
+“In this study, we employed an end-to-end system comprising a React/TypeScript client, a Node.js/TypeScript backend, and a Python-based machine learning service. To mitigate class imbalance in software defect datasets, we evaluated SMOTE, ADASYN, Borderline-SMOTE, Random Under-sampling, and an imbalance-aware Balanced Random Forest. The training pipeline standardized features and, when enabled, selected top-k features via univariate filtering. Hyperparameters were tuned using 5-fold cross-validation optimizing F1-score. We report F1, Precision, Recall, MCC, AUC-ROC, and confusion matrices on a held-out test set. Model explanations were generated using SHAP and LIME to support interpretability.”
+
+20) Quick Start for Demonstrations
+- Install Node and Python requirements
+- Start backend and client
+- Upload a dataset or use data/nasa_defect_dataset.csv
+- On Model Training page:
+  - Select dataset, algorithm, and sampling technique
+  - Start Training and then view metrics in Trained Models section
+- (Optional) Run explain_model to obtain SHAP/LIME outputs for presentation

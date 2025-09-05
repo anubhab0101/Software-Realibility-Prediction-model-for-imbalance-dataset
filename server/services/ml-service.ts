@@ -156,6 +156,28 @@ export class MLService {
         ? outlierCount / (rowCount * numericValueColumns)
         : 0;
 
+    // Compute imbalance ratio when possible (binary labels)
+    let imbalanceRatio = 0.5;
+    if (suggestedTarget) {
+      const targetIdx = header.indexOf(suggestedTarget);
+      if (targetIdx !== -1) {
+        const labels: string[] = [];
+        for (const row of dataRows) {
+          const cell = (row[targetIdx] ?? "").trim();
+          if (cell !== "") labels.push(cell);
+        }
+        const unique = Array.from(new Set(labels));
+        if (unique.length === 2) {
+          const counts: Record<string, number> = {};
+          for (const y of labels) counts[y] = (counts[y] || 0) + 1;
+          const values = Object.values(counts).sort((a, b) => a - b);
+          if (values.length === 2 && values[1] > 0) {
+            imbalanceRatio = values[0] / values[1];
+          }
+        }
+      }
+    }
+
     return {
       rowCount,
       columnCount,
@@ -163,7 +185,7 @@ export class MLService {
       suggestedTarget,
       quality: {
         missingValues,
-        imbalanceRatio: 0.5, // cannot infer robustly without labels
+        imbalanceRatio,
         outliers,
       },
       numericColumns,
