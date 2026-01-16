@@ -12,6 +12,33 @@ export class MLService {
     this.pythonPath = process.env.PYTHON_PATH || (process.platform === "win32" ? "python" : "python3");
   }
 
+  async getGeminiAdvice(stats: any, question: string = "How should I train a model on this imbalanced dataset?") {
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const backendPath = path.join(moduleDir, "../../ml_backend.py");
+    return await new Promise<any>((resolve, reject) => {
+      const processRef = spawn(this.pythonPath, [
+        backendPath,
+        "gemini_suggest",
+        JSON.stringify({ stats, question })
+      ]);
+      let output = "";
+      let errorOutput = "";
+      processRef.stdout.on("data", (data) => { output += data.toString(); });
+      processRef.stderr.on("data", (data) => { errorOutput += data.toString(); });
+      processRef.on("close", (code) => {
+        if (code === 0) {
+          try {
+            resolve(JSON.parse(output));
+          } catch {
+            reject(new Error("Failed to parse Gemini suggestion output"));
+          }
+        } else {
+          reject(new Error(errorOutput || output || "Gemini suggestion failed"));
+        }
+      });
+    });
+  }
+
   async analyzeDataset(filePath: string) {
     try {
       const moduleDir = path.dirname(fileURLToPath(import.meta.url));

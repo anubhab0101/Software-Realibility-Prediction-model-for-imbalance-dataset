@@ -101,28 +101,46 @@ export class FederatedService {
 
     // Start first training round
     await this.startTrainingRound(jobId);
+
+    // Simulate federated learning process (asynchronously)
+    this.simulateFederatedLearning(jobId).catch(() => {});
   }
+
 
   private async startTrainingRound(jobId: string) {
     const job = this.activeJobs.get(jobId);
     if (!job) return;
-
     job.currentRound++;
-    
-    // Send global model to all participating nodes
+    // Simulate sending global model to nodes (no real sockets in mock)
     job.nodes.forEach((node: FederatedNode) => {
-      node.socket.send(JSON.stringify({
-        type: "training_round_start",
-        jobId,
-        round: job.currentRound,
-        globalModel: job.globalModel
-      }));
       node.status = "training";
     });
+  }
 
-    await storage.updateFederatedJob(jobId, {
-      rounds: job.currentRound
-    });
+  // Simulate federated learning rounds and aggregation
+  private async simulateFederatedLearning(jobId: string) {
+    const job = this.activeJobs.get(jobId);
+    if (!job) return;
+    const maxRounds = job.maxRounds || 5;
+    let globalAccuracy = 0.5;
+    for (let round = 1; round <= maxRounds; round++) {
+      await this.startTrainingRound(jobId);
+      // Simulate local training and aggregation
+      await new Promise((res) => setTimeout(res, 1000));
+      // Simulate accuracy improvement
+      globalAccuracy += Math.random() * 0.05;
+      if (globalAccuracy > 0.99) globalAccuracy = 0.99;
+      job.globalModel = { round, accuracy: globalAccuracy };
+      // Simulate updating node statuses
+      job.nodes.forEach((node: FederatedNode) => { node.status = "online"; });
+      // Optionally: update job progress in storage
+      await storage.updateFederatedJob(jobId, {
+        status: round === maxRounds ? "completed" : "active",
+        progress: round / maxRounds,
+        results: { accuracy: globalAccuracy, rounds: round }
+      });
+    }
+    this.activeJobs.delete(jobId);
   }
 
   private async handleNodeMessage(ws: WebSocket, data: any) {
