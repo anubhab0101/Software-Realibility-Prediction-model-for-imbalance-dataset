@@ -6,6 +6,7 @@ import {
   type MonitoringMetric, type InsertMonitoringMetric
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import path from "path";
 
 export interface IStorage {
   // User operations
@@ -80,7 +81,7 @@ export class MemStorage implements IStorage {
       id: "nasa-sample-1",
       name: "NASA Software Defect Dataset",
       description: "Sample NASA software metrics with defect prediction data including time-series components",
-      filePath: "/data/nasa_defect_dataset.csv",
+      filePath: path.resolve(process.cwd(), "data", "nasa_defect_dataset.csv"),
       uploadedBy: null,
       uploadedAt: new Date(),
       rowCount: 1000,

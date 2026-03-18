@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BarChart3, Brain, Play, Settings, Sparkles, Target } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Brain, Settings, Play, BarChart3 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 const ALGORITHMS = [
@@ -24,6 +26,30 @@ const SAMPLING_TECHNIQUES = [
   { value: "random_undersample", label: "Random Undersampling" },
 ];
 
+type DatasetRecord = {
+  id: string;
+  name: string;
+  rowCount?: number | null;
+};
+
+type ModelRecord = {
+  id: string;
+  name: string;
+  algorithm: string;
+  trainingStatus?: string | null;
+  accuracy?: number | null;
+  f1Score?: number | null;
+  precision?: number | null;
+  recall?: number | null;
+};
+
+function formatAlgorithmLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export default function ModelTraining() {
   const [selectedDataset, setSelectedDataset] = useState("");
   const [selectedAlgorithm, setSelectedAlgorithm] = useState("");
@@ -31,13 +57,24 @@ export default function ModelTraining() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: datasets } = useQuery({
+  const { data: datasetsData } = useQuery<DatasetRecord[]>({
     queryKey: ["/api/datasets"],
   });
 
-  const { data: models } = useQuery({
+  const { data: modelsData } = useQuery<ModelRecord[]>({
     queryKey: ["/api/models"],
   });
+
+  const datasets = Array.isArray(datasetsData) ? datasetsData : [];
+  const models = Array.isArray(modelsData) ? modelsData : [];
+  const completedModels = models.filter((model) => model.trainingStatus === "completed");
+  const bestAccuracy =
+    completedModels.length > 0
+      ? Math.max(...completedModels.map((model) => model.accuracy ?? 0))
+      : 0;
+
+  const selectedAlgorithmLabel =
+    ALGORITHMS.find((algorithm) => algorithm.value === selectedAlgorithm)?.label ?? "Choose algorithm";
 
   const trainMutation = useMutation({
     mutationFn: async (config: any) => {
@@ -82,36 +119,159 @@ export default function ModelTraining() {
   };
 
   return (
-    <div className="p-8 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Model Training</h1>
-        <p className="text-muted-foreground">
-          Train advanced ML models for software reliability prediction
-        </p>
-      </div>
+    <div className="px-6 py-8 lg:px-10">
+      <div className="mx-auto flex max-w-7xl flex-col gap-8">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)]">
+          <Card className="overflow-hidden rounded-[32px] border-slate-200/80 bg-[linear-gradient(135deg,#ffffff_0%,#f9fbff_45%,#eef5ff_100%)] shadow-[0_24px_70px_-36px_rgba(15,23,42,0.35)]">
+            <CardContent className="p-8 lg:p-10">
+              <Badge className="rounded-full bg-slate-950 px-3 py-1 text-white hover:bg-slate-950">
+                Training Lab
+              </Badge>
+              <div className="mt-6 grid gap-8 xl:grid-cols-[minmax(0,1.3fr)_minmax(240px,0.82fr)]">
+                <div className="space-y-5">
+                  <div className="space-y-3">
+                    <h1 className="text-4xl font-semibold tracking-tight text-slate-950 lg:text-5xl">
+                      Model Training Studio
+                    </h1>
+                    <p className="max-w-2xl text-base leading-7 text-slate-600">
+                      Configure datasets, algorithms, and imbalance strategies with the same polished analytics
+                      workflow used on the dashboard.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="rounded-[24px] border border-white/80 bg-white/80 p-4 shadow-sm backdrop-blur">
+                      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                        Ready Datasets
+                      </div>
+                      <div className="mt-2 text-2xl font-semibold text-slate-950">{datasets.length}</div>
+                      <p className="mt-1 text-sm text-slate-500">Data sources available for training.</p>
+                    </div>
+                    <div className="rounded-[24px] border border-white/80 bg-white/80 p-4 shadow-sm backdrop-blur">
+                      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                        Completed Runs
+                      </div>
+                      <div className="mt-2 text-2xl font-semibold text-slate-950">{completedModels.length}</div>
+                      <p className="mt-1 text-sm text-slate-500">Models finished and ready to compare.</p>
+                    </div>
+                    <div className="rounded-[24px] border border-white/80 bg-white/80 p-4 shadow-sm backdrop-blur">
+                      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                        Best Accuracy
+                      </div>
+                      <div className="mt-2 text-2xl font-semibold text-slate-950">{(bestAccuracy * 100).toFixed(1)}%</div>
+                      <p className="mt-1 text-sm text-slate-500">Top completed model in this workspace.</p>
+                    </div>
+                  </div>
+                </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Training Configuration */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                Training Configuration
-              </CardTitle>
-              <CardDescription>
-                Configure your model training parameters
-              </CardDescription>
+                <div className="rounded-[28px] bg-slate-950 p-6 text-white shadow-[0_24px_70px_-38px_rgba(15,23,42,0.55)]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                        Selected Strategy
+                      </div>
+                      <div className="mt-2 text-2xl font-semibold">{selectedAlgorithmLabel}</div>
+                    </div>
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10">
+                      <Sparkles className="h-5 w-5" />
+                    </div>
+                  </div>
+                  <p className="mt-4 text-sm leading-6 text-slate-300">
+                    Cross-validation, automated feature handling, and sampling controls remain enabled in the
+                    default training flow.
+                  </p>
+                  <div className="mt-6 space-y-3">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                      <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Sampling</div>
+                      <div className="mt-1 text-lg font-semibold text-white">
+                        {SAMPLING_TECHNIQUES.find((technique) => technique.value === selectedSampling)?.label}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                      <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Algorithms</div>
+                      <div className="mt-1 text-lg font-semibold text-white">{ALGORITHMS.length} families</div>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                      <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Training Focus</div>
+                      <div className="mt-1 text-lg font-semibold text-white">Reliability prediction</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-[32px] border-slate-200/80 bg-white/90 shadow-[0_24px_70px_-36px_rgba(15,23,42,0.35)] backdrop-blur">
+            <CardHeader className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+                  <Target className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-2xl text-slate-950">Pipeline Notes</CardTitle>
+                  <CardDescription className="text-sm text-slate-500">
+                    Training defaults tuned for comparable and robust metrics.
+                  </CardDescription>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <Label>Dataset</Label>
+              {[
+                {
+                  title: "Cross-validated evaluation",
+                  description: "All algorithms are scored under the same validation logic for reliable comparison.",
+                  icon: BarChart3,
+                },
+                {
+                  title: "Imbalance-aware pipeline",
+                  description: "Sampling strategy remains explicit so skewed defect datasets are handled correctly.",
+                  icon: Settings,
+                },
+                {
+                  title: "Ensemble-friendly setup",
+                  description: "The pipeline supports stronger ensemble runs for production-grade performance.",
+                  icon: Brain,
+                },
+              ].map((item) => (
+                <div key={item.title} className="rounded-[24px] border border-slate-100 bg-slate-50/80 p-5">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-slate-700 shadow-sm">
+                      <item.icon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-slate-950">{item.title}</div>
+                      <p className="mt-1 text-sm leading-6 text-slate-500">{item.description}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.02fr)_minmax(360px,0.98fr)]">
+          <Card className="rounded-[30px] border-slate-200/80 bg-white/90 shadow-[0_20px_60px_-32px_rgba(15,23,42,0.28)] backdrop-blur">
+            <CardHeader className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                  <Settings className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-2xl text-slate-950">Training Configuration</CardTitle>
+                  <CardDescription className="text-sm text-slate-500">
+                    Select dataset, model family, and imbalance handling.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-slate-700">Dataset</Label>
                 <Select value={selectedDataset} onValueChange={setSelectedDataset}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-12 rounded-2xl border-slate-200 bg-white/90 text-slate-950 shadow-sm">
                     <SelectValue placeholder="Select dataset" />
                   </SelectTrigger>
                   <SelectContent>
-                    {datasets?.map((dataset: any) => (
+                    {datasets.map((dataset) => (
                       <SelectItem key={dataset.id} value={dataset.id}>
                         {dataset.name}
                       </SelectItem>
@@ -120,10 +280,10 @@ export default function ModelTraining() {
                 </Select>
               </div>
 
-              <div>
-                <Label>Algorithm</Label>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-slate-700">Algorithm</Label>
                 <Select value={selectedAlgorithm} onValueChange={setSelectedAlgorithm}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-12 rounded-2xl border-slate-200 bg-white/90 text-slate-950 shadow-sm">
                     <SelectValue placeholder="Select algorithm" />
                   </SelectTrigger>
                   <SelectContent>
@@ -136,10 +296,10 @@ export default function ModelTraining() {
                 </Select>
               </div>
 
-              <div>
-                <Label>Imbalance Handling</Label>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-slate-700">Imbalance Handling</Label>
                 <Select value={selectedSampling} onValueChange={setSelectedSampling}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-12 rounded-2xl border-slate-200 bg-white/90 text-slate-950 shadow-sm">
                     <SelectValue placeholder="Select sampling technique" />
                   </SelectTrigger>
                   <SelectContent>
@@ -152,133 +312,102 @@ export default function ModelTraining() {
                 </Select>
               </div>
 
-              <Button 
+              <Button
                 onClick={handleTrain}
                 disabled={trainMutation.isPending}
-                className="w-full"
+                className="h-12 w-full rounded-2xl bg-slate-950 text-white shadow-[0_18px_40px_-24px_rgba(15,23,42,0.6)] hover:bg-slate-800"
               >
-                <Play className="h-4 w-4 mr-2" />
+                <Play className="mr-2 h-4 w-4" />
                 {trainMutation.isPending ? "Starting Training..." : "Start Training"}
               </Button>
             </CardContent>
           </Card>
 
-          {/* Training Features */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Advanced Features</CardTitle>
+          <Card className="rounded-[30px] border-slate-200/80 bg-white/90 shadow-[0_20px_60px_-32px_rgba(15,23,42,0.28)] backdrop-blur">
+            <CardHeader className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+                  <Brain className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-2xl text-slate-950">Trained Models</CardTitle>
+                  <CardDescription className="text-sm text-slate-500">
+                    View recent runs and compare core metrics.
+                  </CardDescription>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-start gap-3">
-                <Brain className="h-5 w-5 text-primary mt-0.5" />
-                <div>
-                  <h4 className="font-medium">AutoML Pipeline</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Automated hyperparameter tuning and model selection
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <BarChart3 className="h-5 w-5 text-primary mt-0.5" />
-                <div>
-                  <h4 className="font-medium">Feature Engineering</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Automated feature selection and transformation
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <Settings className="h-5 w-5 text-primary mt-0.5" />
-                <div>
-                  <h4 className="font-medium">Ensemble Methods</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Advanced stacking and voting classifiers
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              {models.map((model) => {
+                const statusTone =
+                  model.trainingStatus === "completed"
+                    ? "bg-emerald-50 text-emerald-700"
+                    : model.trainingStatus === "failed"
+                      ? "bg-rose-50 text-rose-700"
+                      : "bg-amber-50 text-amber-700";
 
-        {/* Model Results */}
-        <div>
-          <Card>
-            <CardHeader>
-              <CardTitle>Trained Models</CardTitle>
-              <CardDescription>
-                View and compare your trained models
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {models?.map((model: any) => (
+                return (
                   <div
                     key={model.id}
-                    className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
+                    className="rounded-[24px] border border-slate-100 bg-slate-50/70 p-5 transition-colors hover:bg-slate-50"
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h4 className="font-medium">{model.name}</h4>
-                        <p className="text-sm text-muted-foreground mb-2">
-                          {model.algorithm.replace('_', ' ').toUpperCase()}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            model.trainingStatus === 'completed' 
-                              ? 'bg-green-100 text-green-800' 
-                              : model.trainingStatus === 'failed'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {model.trainingStatus}
-                          </span>
-                        </div>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-base font-semibold text-slate-950">{model.name}</div>
+                        <p className="mt-1 text-sm text-slate-500">{formatAlgorithmLabel(model.algorithm)}</p>
                       </div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${statusTone}`}>
+                        {model.trainingStatus ?? "pending"}
+                      </span>
                     </div>
-                    
-                    {model.trainingStatus === 'completed' && (
-                      <div className="mt-3 pt-3 border-t">
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <span className="text-muted-foreground">F1-Score:</span>
-                            <span className="ml-2 font-medium">
-                              {model.f1Score?.toFixed(3) || 'N/A'}
-                            </span>
+
+                    {model.trainingStatus === "completed" && (
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-white bg-white px-4 py-3">
+                          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                            F1 Score
                           </div>
-                          <div>
-                            <span className="text-muted-foreground">Accuracy:</span>
-                            <span className="ml-2 font-medium">
-                              {model.accuracy?.toFixed(3) || 'N/A'}
-                            </span>
+                          <div className="mt-1 text-lg font-semibold text-slate-950">
+                            {model.f1Score != null ? `${(model.f1Score * 100).toFixed(1)}%` : "N/A"}
                           </div>
-                          <div>
-                            <span className="text-muted-foreground">Precision:</span>
-                            <span className="ml-2 font-medium">
-                              {model.precision?.toFixed(3) || 'N/A'}
-                            </span>
+                        </div>
+                        <div className="rounded-2xl border border-white bg-white px-4 py-3">
+                          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                            Accuracy
                           </div>
-                          <div>
-                            <span className="text-muted-foreground">Recall:</span>
-                            <span className="ml-2 font-medium">
-                              {model.recall?.toFixed(3) || 'N/A'}
-                            </span>
+                          <div className="mt-1 text-lg font-semibold text-slate-950">
+                            {model.accuracy != null ? `${(model.accuracy * 100).toFixed(1)}%` : "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-white bg-white px-4 py-3">
+                          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                            Precision
+                          </div>
+                          <div className="mt-1 text-lg font-semibold text-slate-950">
+                            {model.precision != null ? `${(model.precision * 100).toFixed(1)}%` : "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-white bg-white px-4 py-3">
+                          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                            Recall
+                          </div>
+                          <div className="mt-1 text-lg font-semibold text-slate-950">
+                            {model.recall != null ? `${(model.recall * 100).toFixed(1)}%` : "N/A"}
                           </div>
                         </div>
                       </div>
                     )}
                   </div>
-                ))}
-                
-                {!models?.length && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Brain className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No models trained yet</p>
-                    <p className="text-sm">Start training your first model</p>
-                  </div>
-                )}
-              </div>
+                );
+              })}
+
+              {models.length === 0 && (
+                <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50/60 px-5 py-10 text-center">
+                  <Brain className="mx-auto h-12 w-12 text-slate-300" />
+                  <p className="mt-4 text-base font-medium text-slate-700">No models trained yet</p>
+                  <p className="mt-2 text-sm text-slate-500">Start a training run to populate the comparison board.</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

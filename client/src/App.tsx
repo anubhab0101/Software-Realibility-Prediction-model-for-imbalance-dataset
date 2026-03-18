@@ -30,9 +30,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <SidebarProvider>
-          <div className="flex min-h-screen bg-background">
+          <div className="flex min-h-screen bg-transparent">
             <SidebarNav />
-            <main className="flex-1 overflow-auto">
+            <main className="flex-1 overflow-auto bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.08),_transparent_30%)]">
               <Toaster />
               <Router />
             </main>

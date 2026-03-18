@@ -12,6 +12,32 @@ export class MLService {
     this.pythonPath = process.env.PYTHON_PATH || (process.platform === "win32" ? "python" : "python3");
   }
 
+  private parsePythonJsonOutput(output: string) {
+    const trimmed = output.trim();
+    if (!trimmed) {
+      throw new Error("Python process returned empty output");
+    }
+
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      const lines = trimmed
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          return JSON.parse(lines[i]);
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    throw new Error("Failed to parse Python JSON output");
+  }
+
   async getGeminiAdvice(stats: any, question: string = "How should I train a model on this imbalanced dataset?") {
     const moduleDir = path.dirname(fileURLToPath(import.meta.url));
     const backendPath = path.join(moduleDir, "../../ml_backend.py");
@@ -28,9 +54,9 @@ export class MLService {
       processRef.on("close", (code) => {
         if (code === 0) {
           try {
-            resolve(JSON.parse(output));
-          } catch {
-            reject(new Error("Failed to parse Gemini suggestion output"));
+            resolve(this.parsePythonJsonOutput(output));
+          } catch (error) {
+            reject(new Error(`Failed to parse Gemini suggestion output: ${error}`));
           }
         } else {
           reject(new Error(errorOutput || output || "Gemini suggestion failed"));
@@ -76,7 +102,7 @@ export class MLService {
           
           if (code === 0) {
             try {
-              const parsed = JSON.parse(output);
+              const parsed = this.parsePythonJsonOutput(output);
               console.log(`[MLService] Successfully parsed Python output`);
               resolve(parsed);
             } catch (parseError) {
@@ -328,25 +354,12 @@ export class MLService {
           console.log(`[MLService] Python training process exited with code: ${code}`);
           
           if (code === 0) {
-            const text = output.trim();
             try {
-              resolve(JSON.parse(text));
-              return;
-            } catch (parseError1) {
-              console.log(`[MLService] First parsing attempt failed, trying to extract JSON`);
-              const start = text.lastIndexOf("{");
-              const end = text.lastIndexOf("}");
-              if (start !== -1 && end !== -1 && end > start) {
-                try {
-                  resolve(JSON.parse(text.slice(start, end + 1)));
-                  return;
-                } catch (parseError2) {
-                  console.error(`[MLService] Second parsing attempt failed:`, parseError2);
-                }
-              }
-              console.error(`[MLService] Failed to parse training results:`, parseError1);
-              console.error(`[MLService] Raw output: ${text}`);
-              reject(new Error(`Failed to parse training results: ${parseError1}`));
+              resolve(this.parsePythonJsonOutput(output));
+            } catch (parseError) {
+              console.error(`[MLService] Failed to parse training results:`, parseError);
+              console.error(`[MLService] Raw output: ${output}`);
+              reject(new Error(`Failed to parse training results: ${parseError}`));
             }
           } else {
             const errorMessage = errorOutput || output || "Python training failed with exit code " + code;
@@ -450,7 +463,7 @@ export class MLService {
       process.on("close", (code) => {
         if (code === 0) {
           try {
-            const result = JSON.parse(output);
+            const result = this.parsePythonJsonOutput(output);
             resolve(result);
           } catch (error) {
             reject(new Error("Failed to parse explanation results"));

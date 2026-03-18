@@ -3,12 +3,14 @@
 
 import sys
 import json
-import pandas as pd
-import numpy as np
-import pickle
 import os
+import pickle
+import builtins
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
+
+import numpy as np
+import pandas as pd
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -17,29 +19,40 @@ import requests
 # For loading environment variables
 try:
     from dotenv import load_dotenv
-    # Load environment variables from .env file with error handling
-    try:
-        load_dotenv()  # Load environment variables from .env file
-        print("[Python Backend] Successfully loaded .env file")
-    except Exception as e:
-        print(f"[Python Backend] Warning: Could not load .env file: {e}")
-        print("[Python Backend] Continuing without .env file")
+
+    def _load_dotenv_with_fallback() -> None:
+        for encoding in ('utf-8', 'utf-8-sig', 'utf-16'):
+            try:
+                if load_dotenv(encoding=encoding):
+                    print(f"[Python Backend] Successfully loaded .env file with encoding {encoding}", file=sys.stderr)
+                    return
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                print(f"[Python Backend] Warning: Could not load .env file: {e}", file=sys.stderr)
+                return
+
+        print("[Python Backend] Continuing without .env file", file=sys.stderr)
+
+    _load_dotenv_with_fallback()
 except ImportError:
-    print("[Python Backend] python-dotenv not installed, continuing without .env support")
+    print("[Python Backend] python-dotenv not installed, continuing without .env support", file=sys.stderr)
     pass  # dotenv is optional, continue without it
 
 
 # Set your Gemini API key here or via environment variable
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', 'YOUR_GEMINI_API_KEY')
-GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent'
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
+GEMINI_API_URL = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
 
 # Core ML Libraries
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.base import clone
+from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier, VotingClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
-from sklearn.metrics import classification_report, confusion_matrix, precision_recall_curve, roc_auc_score, matthews_corrcoef
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_validate, train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, make_scorer, precision_recall_curve, roc_auc_score, matthews_corrcoef
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
 from sklearn.feature_selection import SelectKBest, f_classif, RFE
 
 # Imbalanced Learning
@@ -134,16 +147,8 @@ class MLBackend:
                 
             # Load dataset
             print(f"[Python Backend] Loading dataset...")
-            if file_path.endswith('.csv'):
-                df = pd.read_csv(file_path)
-                print(f"[Python Backend] Loaded CSV file with shape: {df.shape}")
-            elif file_path.endswith('.json'):
-                df = pd.read_json(file_path)
-                print(f"[Python Backend] Loaded JSON file with shape: {df.shape}")
-            else:
-                error_msg = f"Unsupported file format: {file_path}"
-                print(f"[Python Backend] Error: {error_msg}")
-                return {"error": error_msg}
+            df, detected_format = self._load_dataset_for_analysis(file_path)
+            print(f"[Python Backend] Loaded {detected_format.upper()} file with shape: {df.shape}")
                 
             # Basic statistics
             row_count, col_count = df.shape
@@ -215,6 +220,32 @@ class MLBackend:
             import traceback
             print(f"[Python Backend] Traceback: {traceback.format_exc()}")
             return {"error": error_msg}
+
+    def _load_dataset_for_analysis(self, file_path: str) -> Tuple[pd.DataFrame, str]:
+        """Load CSV/JSON uploads even when temporary upload filenames have no extension."""
+        lower_path = file_path.lower()
+        loaders = []
+
+        if lower_path.endswith('.csv'):
+            loaders = [('csv', pd.read_csv), ('json', pd.read_json)]
+        elif lower_path.endswith('.json'):
+            loaders = [('json', pd.read_json), ('csv', pd.read_csv)]
+        else:
+            loaders = [('csv', pd.read_csv), ('json', pd.read_json)]
+
+        last_error = None
+        for format_name, loader in loaders:
+            try:
+                df = loader(file_path)
+                if isinstance(df, pd.DataFrame) and not df.empty and len(df.columns) > 0:
+                    return df, format_name
+            except Exception as e:
+                last_error = e
+
+        raise ValueError(
+            f"Unsupported file format or unreadable dataset: {file_path}. "
+            f"Expected a CSV or JSON file. Last error: {last_error}"
+        )
     
     def _get_feature_description(self, feature_name: str) -> str:
         """Get human-readable description for common software metrics"""
@@ -240,237 +271,122 @@ class MLBackend:
         return descriptions.get(feature_name.lower(), feature_name.replace('_', ' ').title())
     
     def train_model(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Train ML model with advanced techniques"""
+        """Train ML model with deterministic evaluation and stable metrics."""
         try:
             model_id = config['modelId']
             algorithm = config['algorithm']
-            dataset_id = config['datasetId']
             hyperparameters = config.get('hyperparameters', {})
             dataset_path = config.get('datasetPath', 'data/nasa_defect_dataset.csv')
-            
+            random_state = int(hyperparameters.get('random_state', 42))
+
             print(f"[Python Backend] Training model {model_id} with algorithm {algorithm}")
             print(f"[Python Backend] Using dataset: {dataset_path}")
-            
-            # Load the actual uploaded dataset
+
             if not os.path.exists(dataset_path):
                 error_msg = f"Dataset file not found: {dataset_path}"
                 print(f"[Python Backend] Error: {error_msg}")
                 return {'error': error_msg}
-                
+
             df = pd.read_csv(dataset_path)
             print(f"[Python Backend] Loaded dataset with shape: {df.shape}")
-            
-            # Prepare features and target - improved detection
-            print(f"[Python Backend] Dataset columns: {list(df.columns)}")
-            
-            # Identify target column (defect/binary column)
-            target_candidates = [col for col in df.columns 
-                                if any(keyword in col.lower() 
-                                      for keyword in ['defect', 'bug', 'issue', 'fault', 'error', 'class', 'target'])]
-            
-            if target_candidates:
-                target_col = target_candidates[0]
-                print(f"[Python Backend] Using target column: {target_col}")
-            else:
-                # Use last column as target if no clear candidates
-                target_col = df.columns[-1]
-                print(f"[Python Backend] Using last column as target: {target_col}")
-            
-            # Validate target is binary or can be converted to binary
-            target_values = df[target_col].unique()
-            print(f"[Python Backend] Target values: {target_values}")
-            
-            if len(target_values) > 10:
-                # Continuous target - convert to binary using median
-                median_val = df[target_col].median()
-                df[target_col] = (df[target_col] > median_val).astype(int)
-                print(f"[Python Backend] Converted continuous target to binary using median: {median_val}")
-            
-            # Separate features and target
-            X = df.drop(columns=[target_col])
-            y = df[target_col]
-            
+
+            X, y = self._prepare_training_data(df)
             print(f"[Python Backend] Features shape: {X.shape}, Target shape: {y.shape}")
             print(f"[Python Backend] Target distribution: {y.value_counts().to_dict()}")
-            
-            # Handle sampling technique
+
             sampling_technique = hyperparameters.get('sampling_technique', 'smote')
-            
-            # Data preprocessing
-            print(f"[Python Backend] Preprocessing data...")
-            
-            # Handle missing values
-            if X.isnull().sum().sum() > 0:
-                print(f"[Python Backend] Found {X.isnull().sum().sum()} missing values, filling with median")
-                X = X.fillna(X.median())
-            
-            # Handle categorical variables
-            categorical_columns = X.select_dtypes(include=['object']).columns
-            if len(categorical_columns) > 0:
-                print(f"[Python Backend] Found {len(categorical_columns)} categorical columns: {list(categorical_columns)}")
-                from sklearn.preprocessing import LabelEncoder
-                for col in categorical_columns:
-                    try:
-                        le = LabelEncoder()
-                        # Handle mixed types by converting to string first
-                        X[col] = X[col].astype(str)
-                        # Handle NaN values
-                        X[col] = X[col].replace('nan', 'unknown').replace('None', 'unknown')
-                        X[col] = le.fit_transform(X[col])
-                        print(f"[Python Backend] Encoded column {col}: {len(le.classes_)} unique values")
-                    except Exception as e:
-                        print(f"[Python Backend] Warning: Failed to encode column {col}: {e}")
-                        # Fallback: use pandas get_dummies
-                        X = pd.get_dummies(X, columns=[col], prefix=col)
-                        break
-            
-            # Convert all columns to numeric, handling any remaining issues
-            for col in X.columns:
-                try:
-                    X[col] = pd.to_numeric(X[col], errors='coerce')
-                except Exception as e:
-                    print(f"[Python Backend] Warning: Failed to convert column {col} to numeric: {e}")
-                    # If conversion fails, create a simple numeric encoding
-                    unique_vals = X[col].unique()
-                    mapping = {val: idx for idx, val in enumerate(unique_vals) if pd.notna(val)}
-                    X[col] = X[col].map(mapping).fillna(0)
-            
-            # Fill any remaining NaN values
-            X = X.fillna(0)
-            
-            # Apply sampling technique
             X_resampled, y_resampled = self._apply_sampling(X, y, sampling_technique)
+            X_resampled = pd.DataFrame(X_resampled, columns=X.columns)
+            y_resampled = pd.Series(np.asarray(y_resampled).astype(np.int32), name=y.name)
             print(f"[Python Backend] After sampling - Features: {X_resampled.shape}, Target: {y_resampled.shape}")
-            
-            # Ensure data is in the right format for sklearn
-            X_resampled = np.asarray(X_resampled).astype(np.float32)
-            y_resampled = np.asarray(y_resampled).astype(np.int32)
-            
-            # Split data with proper randomization
-            print(f"[Python Backend] Splitting data into train/test sets...")
-            
-            # Use different random states for more realistic variation
-            random_state = np.random.randint(0, 1000)
-            print(f"[Python Backend] Using random state: {random_state}")
-            
-            # Check if we can use stratification (need at least 2 samples per class)
-            stratify_param = y_resampled if len(np.unique(y_resampled)) > 1 and min(np.bincount(y_resampled)) >= 2 else None
-            
-            X_train, X_test, y_train, y_test = train_test_split(
-                X_resampled, y_resampled, 
-                test_size=0.2, 
-                random_state=random_state, 
+
+            stratify_param = y_resampled if y_resampled.nunique() > 1 else None
+            X_train_df, X_test_df, y_train, y_test = train_test_split(
+                X_resampled,
+                y_resampled,
+                test_size=0.2,
+                random_state=random_state,
                 stratify=stratify_param
             )
-            
-            # Ensure all arrays are in the correct format
-            X_train = np.asarray(X_train).astype(np.float32)
-            X_test = np.asarray(X_test).astype(np.float32)
-            y_train = np.asarray(y_train).astype(np.int32)
-            y_test = np.asarray(y_test).astype(np.int32)
-            
+
+            X_train = np.asarray(X_train_df, dtype=np.float32)
+            X_test = np.asarray(X_test_df, dtype=np.float32)
+            y_train = np.asarray(y_train, dtype=np.int32)
+            y_test = np.asarray(y_test, dtype=np.int32)
             print(f"[Python Backend] Train set: {X_train.shape}, Test set: {X_test.shape}")
-            print(f"[Python Backend] Train target distribution: {np.bincount(y_train)}")
-            print(f"[Python Backend] Test target distribution: {np.bincount(y_test)}")
-            
-            # Feature scaling
+
             scaler = StandardScaler()
-            X_train_scaled = scaler.fit_transform(X_train)
-            X_test_scaled = scaler.transform(X_test)
-            
-            # Ensure scaled data is in the right format
-            X_train_scaled = np.asarray(X_train_scaled).astype(np.float32)
-            X_test_scaled = np.asarray(X_test_scaled).astype(np.float32)
-            
-            # Feature selection
-            if hyperparameters.get('feature_selection', 'auto') == 'auto':
+            X_train_scaled = scaler.fit_transform(X_train).astype(np.float32)
+            X_test_scaled = scaler.transform(X_test).astype(np.float32)
+
+            selector = None
+            selected_feature_names = X.columns.to_numpy()
+            if hyperparameters.get('feature_selection', 'auto') == 'auto' and X_train_scaled.shape[1] > 1:
                 selector = SelectKBest(f_classif, k=min(10, X_train_scaled.shape[1]))
-                X_train_selected = selector.fit_transform(X_train_scaled, y_train)
-                X_test_selected = selector.transform(X_test_scaled)
-                
-                # Ensure selected features are in the right format
-                X_train_selected = np.asarray(X_train_selected).astype(np.float32)
-                X_test_selected = np.asarray(X_test_selected).astype(np.float32)
+                X_train_selected = selector.fit_transform(X_train_scaled, y_train).astype(np.float32)
+                X_test_selected = selector.transform(X_test_scaled).astype(np.float32)
+                selected_feature_names = X.columns[selector.get_support()].to_numpy()
             else:
                 X_train_selected = X_train_scaled
                 X_test_selected = X_test_scaled
-                selector = None
-            
-            # Train model based on algorithm
+
+            X_train_processed, X_test_processed, algorithm_preprocessor = self._prepare_algorithm_features(
+                X_train_selected,
+                X_test_selected,
+                algorithm
+            )
+
             model = self._create_model(algorithm, hyperparameters)
-            
-            # Hyperparameter tuning with cross-validation
             if hyperparameters.get('cross_validation', True):
-                model = self._tune_hyperparameters(model, X_train_selected, y_train, algorithm)
-            
-            # Add algorithm-specific preprocessing to enhance differences
-            X_train_processed = X_train_selected.copy()
-            X_test_processed = X_test_selected.copy()
-            
-            # Apply algorithm-specific transformations to enhance differences
-            if algorithm == 'svm':
-                # SVM works better with normalized features
-                from sklearn.preprocessing import MinMaxScaler
-                svm_scaler = MinMaxScaler()
-                X_train_processed = svm_scaler.fit_transform(X_train_processed)
-                X_test_processed = svm_scaler.transform(X_test_processed)
-            elif algorithm == 'neural_network':
-                # NN benefits from standardized features
-                from sklearn.preprocessing import StandardScaler
-                nn_scaler = StandardScaler()
-                X_train_processed = nn_scaler.fit_transform(X_train_processed)
-                X_test_processed = nn_scaler.transform(X_test_processed)
-            elif algorithm == 'xgboost':
-                # XGBoost can work with original features but we'll add some engineered features
-                # Create some interaction features to differentiate
-                if X_train_processed.shape[1] >= 2:
-                    interaction_feature = X_train_processed[:, 0] * X_train_processed[:, 1]
-                    X_train_processed = np.column_stack([X_train_processed, interaction_feature])
-                    interaction_feature_test = X_test_processed[:, 0] * X_test_processed[:, 1]
-                    X_test_processed = np.column_stack([X_test_processed, interaction_feature_test])
-            
-            # Train final model
+                model = self._tune_hyperparameters(model, X_train_processed, y_train, algorithm)
+
+            validation_metrics = self._cross_validate_model(model, X_train_processed, y_train)
+
             model.fit(X_train_processed, y_train)
-            
-            # Predictions
             y_pred = model.predict(X_test_processed)
             y_pred_proba = model.predict_proba(X_test_processed)[:, 1] if hasattr(model, 'predict_proba') else None
-            
-            # Calculate metrics
-            metrics = self._calculate_metrics(y_test, y_pred, y_pred_proba)
-            
-            # Feature importance
-            feature_importance = self._get_feature_importance(model, X.columns, selector)
-            
-            # Save model
+            holdout_metrics = self._calculate_metrics(y_test, y_pred, y_pred_proba)
+            feature_importance = self._get_feature_importance(model, selected_feature_names.tolist())
+
             model_path = f'models/{model_id}.pkl'
             os.makedirs('models', exist_ok=True)
-            
+
             with open(model_path, 'wb') as f:
                 pickle.dump({
                     'model': model,
                     'scaler': scaler,
                     'selector': selector,
-                    'feature_names': X.columns.tolist()
+                    'feature_names': X.columns.tolist(),
+                    'selected_feature_names': selected_feature_names.tolist(),
+                    'algorithm_preprocessor': algorithm_preprocessor
                 }, f)
-            
-            # Store references
+
             self.models[model_id] = model
             self.scalers[model_id] = scaler
             self.feature_selectors[model_id] = selector
-            
+
             return {
                 'modelPath': model_path,
-                'accuracy': metrics['accuracy'],
-                'precision': metrics['precision'],
-                'recall': metrics['recall'],
-                'f1Score': metrics['f1_score'],
-                'mcc': metrics['mcc'],
-                'confusionMatrix': metrics['confusion_matrix'].tolist(),
-                'featureImportance': feature_importance
+                'accuracy': validation_metrics['accuracy'],
+                'precision': validation_metrics['precision'],
+                'recall': validation_metrics['recall'],
+                'f1Score': validation_metrics['f1_score'],
+                'mcc': validation_metrics['mcc'],
+                'confusionMatrix': holdout_metrics['confusion_matrix'].tolist(),
+                'featureImportance': feature_importance,
+                'validationMetrics': validation_metrics,
+                'holdoutMetrics': {
+                    'accuracy': holdout_metrics['accuracy'],
+                    'precision': holdout_metrics['precision'],
+                    'recall': holdout_metrics['recall'],
+                    'f1Score': holdout_metrics['f1_score'],
+                    'mcc': holdout_metrics['mcc'],
+                    'aucRoc': holdout_metrics.get('auc_roc')
+                }
             }
-            
+
         except Exception as e:
+            print(f"[Python Backend] Training error: {e}")
             return {'error': str(e)}
     
     def _apply_sampling(self, X: pd.DataFrame, y: pd.Series, technique: str) -> Tuple[pd.DataFrame, pd.Series]:
@@ -520,195 +436,301 @@ class MLBackend:
             print(f"[Python Backend] Error in sampling: {e}")
             print("[Python Backend] Returning original data")
             return X, y
+
+    def _prepare_training_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
+        """Prepare a dataset for binary defect prediction."""
+        print(f"[Python Backend] Dataset columns: {list(df.columns)}")
+        target_candidates = [
+            col for col in df.columns
+            if any(keyword in col.lower() for keyword in ['defect', 'bug', 'issue', 'fault', 'error', 'class', 'target'])
+        ]
+        target_col = target_candidates[0] if target_candidates else df.columns[-1]
+        print(f"[Python Backend] Using target column: {target_col}")
+
+        target_values = df[target_col].dropna().unique()
+        print(f"[Python Backend] Target values: {target_values}")
+        if len(target_values) > 10:
+            median_val = df[target_col].median()
+            df[target_col] = (df[target_col] > median_val).astype(int)
+            print(f"[Python Backend] Converted continuous target to binary using median: {median_val}")
+
+        X = df.drop(columns=[target_col]).copy()
+        y = pd.to_numeric(df[target_col], errors='coerce').fillna(0).astype(int)
+
+        if X.isnull().sum().sum() > 0:
+            print(f"[Python Backend] Found {X.isnull().sum().sum()} missing values, filling numeric medians")
+            numeric_columns = X.select_dtypes(include=[np.number]).columns
+            if len(numeric_columns) > 0:
+                X[numeric_columns] = X[numeric_columns].fillna(X[numeric_columns].median())
+
+        categorical_columns = X.select_dtypes(include=['object', 'category', 'bool']).columns
+        if len(categorical_columns) > 0:
+            print(f"[Python Backend] Encoding categorical columns: {list(categorical_columns)}")
+            for col in categorical_columns:
+                X[col] = X[col].astype(str).replace({'nan': 'unknown', 'None': 'unknown'})
+                encoder = LabelEncoder()
+                X[col] = encoder.fit_transform(X[col])
+
+        for col in X.columns:
+            X[col] = pd.to_numeric(X[col], errors='coerce')
+
+        X = X.fillna(0)
+        return X, y
+
+    def _prepare_algorithm_features(self, X_train, X_test, algorithm: str):
+        """Apply deterministic algorithm-specific feature transforms."""
+        X_train_processed = np.asarray(X_train, dtype=np.float32)
+        X_test_processed = np.asarray(X_test, dtype=np.float32)
+        transformer = None
+        add_interaction_feature = False
+
+        if algorithm == 'svm':
+            transformer = MinMaxScaler()
+            X_train_processed = transformer.fit_transform(X_train_processed)
+            X_test_processed = transformer.transform(X_test_processed)
+        elif algorithm == 'neural_network':
+            transformer = StandardScaler()
+            X_train_processed = transformer.fit_transform(X_train_processed)
+            X_test_processed = transformer.transform(X_test_processed)
+
+        if algorithm in ('xgboost', 'ensemble') and X_train_processed.shape[1] >= 2:
+            add_interaction_feature = True
+            X_train_processed = np.column_stack([
+                X_train_processed,
+                X_train_processed[:, 0] * X_train_processed[:, 1]
+            ])
+            X_test_processed = np.column_stack([
+                X_test_processed,
+                X_test_processed[:, 0] * X_test_processed[:, 1]
+            ])
+
+        return (
+            np.asarray(X_train_processed, dtype=np.float32),
+            np.asarray(X_test_processed, dtype=np.float32),
+            {
+                'transformer': transformer,
+                'add_interaction_feature': add_interaction_feature
+            }
+        )
+
+    def _cross_validate_model(self, model, X_train, y_train) -> Dict[str, float]:
+        """Compute stable validation metrics so different algorithms report their own values."""
+        class_counts = np.bincount(y_train)
+        positive_counts = class_counts[class_counts > 0]
+        min_class_count = int(positive_counts.min()) if len(positive_counts) > 0 else 0
+        n_splits = max(2, min(5, min_class_count)) if min_class_count >= 2 else 2
+        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+        scoring = {
+            'accuracy': 'accuracy',
+            'precision': 'precision',
+            'recall': 'recall',
+            'f1': 'f1',
+            'mcc': make_scorer(matthews_corrcoef)
+        }
+        scores = cross_validate(clone(model), X_train, y_train, cv=cv, scoring=scoring, n_jobs=1)
+        metrics = {
+            'accuracy': float(np.mean(scores['test_accuracy'])),
+            'precision': float(np.mean(scores['test_precision'])),
+            'recall': float(np.mean(scores['test_recall'])),
+            'f1_score': float(np.mean(scores['test_f1'])),
+            'mcc': float(np.mean(scores['test_mcc']))
+        }
+        print(f"[Python Backend] Validation metrics: {metrics}")
+        return metrics
     
     def _create_model(self, algorithm: str, hyperparameters: Dict[str, Any]):
-        """Create ML model based on algorithm"""
-        # Use different random states for each algorithm to ensure variation
-        algo_random_state = np.random.randint(0, 1000)
-        print(f"[Python Backend] Using random state {algo_random_state} for algorithm {algorithm}")
-        
+        """Create deterministic models for repeatable results."""
+        random_state = int(hyperparameters.get('random_state', 42))
+        print(f"[Python Backend] Using random state {random_state} for algorithm {algorithm}")
+
+        if algorithm == 'ensemble':
+            rf = RandomForestClassifier(
+                n_estimators=hyperparameters.get('rf_n_estimators', 300),
+                max_depth=hyperparameters.get('rf_max_depth', None),
+                max_features=hyperparameters.get('rf_max_features', 'sqrt'),
+                class_weight='balanced_subsample',
+                random_state=random_state,
+                n_jobs=1
+            )
+            et = ExtraTreesClassifier(
+                n_estimators=hyperparameters.get('et_n_estimators', 300),
+                max_depth=hyperparameters.get('et_max_depth', None),
+                class_weight='balanced',
+                random_state=random_state,
+                n_jobs=1
+            )
+            xgb_model = xgb.XGBClassifier(
+                n_estimators=hyperparameters.get('xgb_n_estimators', 300),
+                max_depth=hyperparameters.get('xgb_max_depth', 4),
+                learning_rate=hyperparameters.get('xgb_learning_rate', 0.05),
+                subsample=hyperparameters.get('xgb_subsample', 0.9),
+                colsample_bytree=hyperparameters.get('xgb_colsample_bytree', 0.9),
+                eval_metric='logloss',
+                random_state=random_state,
+                n_jobs=1
+            )
+            return VotingClassifier(
+                estimators=[('rf', rf), ('et', et), ('xgb', xgb_model)],
+                voting='soft',
+                weights=hyperparameters.get('weights', [2, 1, 2])
+            )
+
         models = {
             'random_forest': RandomForestClassifier(
-                n_estimators=hyperparameters.get('n_estimators', np.random.choice([50, 100, 200])),
-                max_depth=hyperparameters.get('max_depth', np.random.choice([None, 10, 20, 30])),
-                min_samples_split=hyperparameters.get('min_samples_split', np.random.choice([2, 5, 10])),
-                min_samples_leaf=hyperparameters.get('min_samples_leaf', np.random.choice([1, 2, 4])),
-                max_features=hyperparameters.get('max_features', np.random.choice(['sqrt', 'log2', None])),
-                random_state=algo_random_state
+                n_estimators=hyperparameters.get('n_estimators', 200),
+                max_depth=hyperparameters.get('max_depth', None),
+                min_samples_split=hyperparameters.get('min_samples_split', 2),
+                min_samples_leaf=hyperparameters.get('min_samples_leaf', 1),
+                max_features=hyperparameters.get('max_features', 'sqrt'),
+                class_weight='balanced_subsample',
+                random_state=random_state,
+                n_jobs=1
             ),
             'svm': SVC(
-                C=hyperparameters.get('C', np.random.choice([0.1, 1, 10, 100])),
-                kernel=hyperparameters.get('kernel', np.random.choice(['rbf', 'linear', 'poly'])),
-                gamma=hyperparameters.get('gamma', np.random.choice(['scale', 'auto', 0.1, 1.0])),
-                degree=hyperparameters.get('degree', np.random.choice([2, 3, 4])) if hyperparameters.get('kernel') == 'poly' else 3,
+                C=hyperparameters.get('C', 10.0),
+                kernel=hyperparameters.get('kernel', 'rbf'),
+                gamma=hyperparameters.get('gamma', 'scale'),
+                degree=hyperparameters.get('degree', 3),
                 probability=True,
-                random_state=algo_random_state
+                class_weight='balanced',
+                random_state=random_state
             ),
             'neural_network': MLPClassifier(
-                hidden_layer_sizes=hyperparameters.get('hidden_layer_sizes', np.random.choice([(50,), (100,), (100, 50), (50, 25)])),
-                alpha=hyperparameters.get('alpha', np.random.choice([0.0001, 0.001, 0.01, 0.1])),
-                learning_rate=hyperparameters.get('learning_rate', np.random.choice(['constant', 'adaptive'])),
-                learning_rate_init=hyperparameters.get('learning_rate_init', np.random.choice([0.001, 0.01, 0.1])),
-                max_iter=500,
-                random_state=algo_random_state
+                hidden_layer_sizes=tuple(hyperparameters.get('hidden_layer_sizes', (64, 32))),
+                alpha=hyperparameters.get('alpha', 0.0001),
+                learning_rate=hyperparameters.get('learning_rate', 'adaptive'),
+                learning_rate_init=hyperparameters.get('learning_rate_init', 0.001),
+                max_iter=1000,
+                early_stopping=True,
+                random_state=random_state
             ),
             'xgboost': xgb.XGBClassifier(
-                n_estimators=hyperparameters.get('n_estimators', np.random.choice([50, 100, 200])),
-                max_depth=hyperparameters.get('max_depth', np.random.choice([3, 6, 9, 12])),
-                learning_rate=hyperparameters.get('learning_rate', np.random.choice([0.01, 0.1, 0.2, 0.3])),
-                subsample=hyperparameters.get('subsample', np.random.choice([0.8, 0.9, 1.0])),
-                colsample_bytree=hyperparameters.get('colsample_bytree', np.random.choice([0.8, 0.9, 1.0])),
-                random_state=algo_random_state
-            ),
-            'ensemble': BalancedRandomForestClassifier(
-                n_estimators=hyperparameters.get('n_estimators', np.random.choice([50, 100, 150])),
-                max_depth=hyperparameters.get('max_depth', np.random.choice([None, 10, 20])),
-                sampling_strategy=hyperparameters.get('sampling_strategy', 'auto'),
-                random_state=algo_random_state
+                n_estimators=hyperparameters.get('n_estimators', 200),
+                max_depth=hyperparameters.get('max_depth', 4),
+                learning_rate=hyperparameters.get('learning_rate', 0.05),
+                subsample=hyperparameters.get('subsample', 0.9),
+                colsample_bytree=hyperparameters.get('colsample_bytree', 0.9),
+                eval_metric='logloss',
+                random_state=random_state,
+                n_jobs=1
             )
         }
-        
-        return models.get(algorithm, RandomForestClassifier(random_state=42))
+
+        return models.get(algorithm, RandomForestClassifier(random_state=random_state, n_jobs=1))
     
     def _tune_hyperparameters(self, model, X_train, y_train, algorithm: str):
-        """Perform hyperparameter tuning with realistic variation"""
+        """Perform deterministic hyperparameter tuning."""
         print(f"[Python Backend] Performing hyperparameter tuning for {algorithm}...")
-        
-        # Randomly decide whether to do tuning (50% chance) for performance
-        if np.random.random() < 0.5:
-            print(f"[Python Backend] Skipping hyperparameter tuning for variation")
-            return model
-        
+
+        class_counts = np.bincount(y_train)
+        positive_counts = class_counts[class_counts > 0]
+        min_class_count = int(positive_counts.min()) if len(positive_counts) > 0 else 0
+        n_splits = max(2, min(5, min_class_count)) if min_class_count >= 2 else 2
+        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+
         param_grids = {
             'random_forest': {
-                'n_estimators': [50, 100, 200],
-                'max_depth': [None, 10, 20],
-                'min_samples_split': [2, 5, 10],
-                'min_samples_leaf': [1, 2, 4]
+                'n_estimators': [150, 200, 300],
+                'max_depth': [None, 10, 20]
             },
             'svm': {
-                'C': [0.1, 1, 10],
-                'gamma': ['scale', 'auto', 0.1, 1.0],
-                'kernel': ['rbf', 'linear']
+                'C': [1.0, 10.0, 25.0],
+                'gamma': ['scale', 'auto']
             },
             'neural_network': {
-                'hidden_layer_sizes': [(50,), (100,), (100, 50), (50, 25)],
-                'alpha': [0.0001, 0.001, 0.01, 0.1],
-                'learning_rate': ['constant', 'adaptive']
+                'hidden_layer_sizes': [(64, 32), (128, 64)],
+                'alpha': [0.0001, 0.001]
             },
             'xgboost': {
-                'n_estimators': [50, 100, 200],
-                'max_depth': [3, 6, 9],
-                'learning_rate': [0.01, 0.1, 0.2],
-                'subsample': [0.8, 0.9, 1.0]
+                'n_estimators': [150, 200, 300],
+                'max_depth': [3, 4, 5],
+                'learning_rate': [0.03, 0.05, 0.1]
+            },
+            'ensemble': {
+                'weights': [[1, 1, 1], [2, 1, 2], [3, 1, 2]]
             }
         }
-        
-        param_grid = param_grids.get(algorithm, {})
-        if param_grid:
-            # Use random scoring metric for variation
-            scoring_metrics = ['f1', 'precision', 'recall', 'accuracy']
-            scoring = np.random.choice(scoring_metrics)
-            print(f"[Python Backend] Using scoring metric: {scoring}")
-            
-            grid_search = GridSearchCV(
-                model, param_grid, cv=3, scoring=scoring, n_jobs=1, verbose=0  # Reduced cv for speed
-            )
-            grid_search.fit(X_train, y_train)
-            print(f"[Python Backend] Best parameters: {grid_search.best_params_}")
-            print(f"[Python Backend] Best score: {grid_search.best_score_:.4f}")
-            return grid_search.best_estimator_
-        
-        return model
+
+        param_grid = param_grids.get(algorithm)
+        if not param_grid:
+            return model
+
+        grid_search = GridSearchCV(
+            model,
+            param_grid,
+            cv=cv,
+            scoring='f1',
+            n_jobs=1,
+            verbose=0
+        )
+        grid_search.fit(X_train, y_train)
+        print(f"[Python Backend] Best parameters: {grid_search.best_params_}")
+        print(f"[Python Backend] Best F1 score: {grid_search.best_score_:.4f}")
+        return grid_search.best_estimator_
     
     def _calculate_metrics(self, y_true, y_pred, y_pred_proba=None) -> Dict[str, Any]:
-        """Calculate comprehensive model performance metrics with error handling"""
-        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-        
+        """Calculate classification metrics with stable binary handling."""
+        from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+
         try:
-            # Handle case where we only have one class in predictions
-            unique_pred = np.unique(y_pred)
-            unique_true = np.unique(y_true)
-            
-            print(f"[Python Backend] True classes: {unique_true}, Predicted classes: {unique_pred}")
-            
-            if len(unique_pred) == 1:
-                # All predictions are the same class - handle this edge case
-                majority_class = unique_pred[0]
-                print(f"[Python Backend] All predictions are class {majority_class}")
-                
-                # Calculate metrics manually to avoid sklearn errors
-                tp = np.sum((y_true == majority_class) & (y_pred == majority_class))
-                fp = np.sum((y_true != majority_class) & (y_pred == majority_class))
-                tn = np.sum((y_true != majority_class) & (y_pred != majority_class))
-                fn = np.sum((y_true == majority_class) & (y_pred != majority_class))
-                
-                accuracy = (tp + tn) / len(y_true) if len(y_true) > 0 else 0
-                precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-                recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-                f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-                
-                # Calculate MCC manually
-                mcc_denom = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
-                mcc = (tp * tn - fp * fn) / mcc_denom if mcc_denom > 0 else 0
-                
-                metrics = {
-                    'accuracy': accuracy,
-                    'precision': precision,
-                    'recall': recall,
-                    'f1_score': f1,
-                    'mcc': mcc,
-                    'confusion_matrix': np.array([[tn, fp], [fn, tp]])
-                }
-            
-            else:
-                # Normal case with multiple classes
-                metrics = {
-                    'accuracy': accuracy_score(y_true, y_pred),
-                    'precision': precision_score(y_true, y_pred, average='binary', zero_division=0),
-                    'recall': recall_score(y_true, y_pred, average='binary', zero_division=0),
-                    'f1_score': f1_score(y_true, y_pred, average='binary', zero_division=0),
-                    'mcc': matthews_corrcoef(y_true, y_pred),
-                    'confusion_matrix': confusion_matrix(y_true, y_pred)
-                }
-            
-            # Handle AUC-ROC calculation
+            y_true = np.asarray(y_true).astype(int)
+            y_pred = np.asarray(y_pred).astype(int)
+            metrics = {
+                'accuracy': float(accuracy_score(y_true, y_pred)),
+                'precision': float(precision_score(y_true, y_pred, zero_division=0)),
+                'recall': float(recall_score(y_true, y_pred, zero_division=0)),
+                'f1_score': float(f1_score(y_true, y_pred, zero_division=0)),
+                'mcc': float(matthews_corrcoef(y_true, y_pred)) if len(np.unique(np.concatenate([y_true, y_pred]))) > 1 else 0.0,
+                'confusion_matrix': confusion_matrix(y_true, y_pred, labels=[0, 1])
+            }
+
             if y_pred_proba is not None and len(np.unique(y_true)) > 1:
                 try:
-                    metrics['auc_roc'] = roc_auc_score(y_true, y_pred_proba)
+                    metrics['auc_roc'] = float(roc_auc_score(y_true, y_pred_proba))
                 except Exception as e:
                     print(f"[Python Backend] Warning: AUC-ROC calculation failed: {e}")
-                    metrics['auc_roc'] = 0.5  # Neutral value
-            
-            print(f"[Python Backend] Calculated metrics: {metrics}")
+                    metrics['auc_roc'] = 0.5
+
+            print(f"[Python Backend] Calculated holdout metrics: {metrics}")
             return metrics
-            
+
         except Exception as e:
             print(f"[Python Backend] Error calculating metrics: {e}")
-            # Return baseline metrics
             return {
                 'accuracy': 0.5,
                 'precision': 0.0,
                 'recall': 0.0,
                 'f1_score': 0.0,
                 'mcc': 0.0,
-                'confusion_matrix': np.array([[len(y_true)//2, len(y_true)//2], [len(y_true)//2, len(y_true)//2]])
+                'confusion_matrix': np.array([[0, 0], [0, 0]])
             }
     
-    def _get_feature_importance(self, model, feature_names: List[str], selector=None) -> Dict[str, float]:
-        """Extract feature importance from trained model"""
+    def _get_feature_importance(self, model, feature_names: List[str]) -> Dict[str, float]:
+        """Extract feature importance from native estimators and soft-voting ensembles."""
+        importances = None
+
         if hasattr(model, 'feature_importances_'):
-            importances = model.feature_importances_
+            importances = np.asarray(model.feature_importances_, dtype=float)
         elif hasattr(model, 'coef_'):
-            importances = np.abs(model.coef_[0])
-        else:
+            importances = np.abs(np.asarray(model.coef_[0], dtype=float))
+        elif hasattr(model, 'estimators_'):
+            ensemble_importances = []
+            for estimator in model.estimators_:
+                if hasattr(estimator, 'feature_importances_'):
+                    ensemble_importances.append(np.asarray(estimator.feature_importances_, dtype=float))
+                elif hasattr(estimator, 'coef_'):
+                    ensemble_importances.append(np.abs(np.asarray(estimator.coef_[0], dtype=float)))
+            if ensemble_importances:
+                importances = np.mean(np.vstack(ensemble_importances), axis=0)
+
+        if importances is None:
             return {}
-        
-        if selector is not None:
-            selected_features = feature_names[selector.get_support()]
-            return dict(zip(selected_features, importances))
-        
-        return dict(zip(feature_names, importances))
+
+        usable_length = min(len(feature_names), len(importances))
+        return {
+            feature_names[index]: float(importances[index])
+            for index in range(usable_length)
+        }
     
     def explain_model(self, model_id: str) -> Dict[str, Any]:
         """Generate model explanations using SHAP and LIME"""
@@ -1075,12 +1097,21 @@ class NLPBackend:
 
 def main():
     """Main entry point for ML backend operations"""
+    stdout_print = builtins.print
+
+    def log_print(*args, **kwargs):
+        kwargs.setdefault('file', sys.stderr)
+        return stdout_print(*args, **kwargs)
+
+    builtins.print = log_print
+    emit_json = lambda payload: stdout_print(json.dumps(payload))
+
     print(f"[Python Backend] Starting with arguments: {sys.argv}")
     
     if len(sys.argv) < 2:
         error_msg = "Usage: python ml_backend.py <operation> [args...]"
         print(f"[Python Backend] Error: {error_msg}")
-        print(json.dumps({"error": error_msg}))
+        emit_json({"error": error_msg})
         return
     
     operation = sys.argv[1]
@@ -1095,13 +1126,15 @@ def main():
     print("[Python Backend] Backends initialized successfully")
 
     def gemini_suggest(prompt: str) -> str:
-        headers = {"Content-Type": "application/json"}
-        params = {"key": GEMINI_API_KEY}
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": GEMINI_API_KEY
+        }
         data = {
             "contents": [{"parts": [{"text": prompt}]}]
         }
         try:
-            response = requests.post(GEMINI_API_URL, headers=headers, params=params, json=data, timeout=30)
+            response = requests.post(GEMINI_API_URL, headers=headers, json=data, timeout=30)
             response.raise_for_status()
             result = response.json()
             return result['candidates'][0]['content']['parts'][0]['text']
@@ -1440,12 +1473,21 @@ def get_algorithm_documentation():
 
 def main():
     """Main entry point for ML backend operations"""
+    stdout_print = builtins.print
+
+    def log_print(*args, **kwargs):
+        kwargs.setdefault('file', sys.stderr)
+        return stdout_print(*args, **kwargs)
+
+    builtins.print = log_print
+    emit_json = lambda payload: stdout_print(json.dumps(payload))
+
     print(f"[Python Backend] Starting with arguments: {sys.argv}")
     
     if len(sys.argv) < 2:
         error_msg = "Usage: python ml_backend.py <operation> [args...]"
         print(f"[Python Backend] Error: {error_msg}")
-        print(json.dumps({"error": error_msg}))
+        emit_json({"error": error_msg})
         return
     
     operation = sys.argv[1]
@@ -1460,13 +1502,15 @@ def main():
     print("[Python Backend] Backends initialized successfully")
 
     def gemini_suggest(prompt: str) -> str:
-        headers = {"Content-Type": "application/json"}
-        params = {"key": GEMINI_API_KEY}
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": GEMINI_API_KEY
+        }
         data = {
             "contents": [{"parts": [{"text": prompt}]}]
         }
         try:
-            response = requests.post(GEMINI_API_URL, headers=headers, params=params, json=data, timeout=30)
+            response = requests.post(GEMINI_API_URL, headers=headers, json=data, timeout=30)
             response.raise_for_status()
             result = response.json()
             return result['candidates'][0]['content']['parts'][0]['text']
@@ -1480,55 +1524,55 @@ def main():
             if len(sys.argv) < 3:
                 error_msg = "analyze_dataset requires file path argument"
                 print(f"[Python Backend] Error: {error_msg}")
-                print(json.dumps({"error": error_msg}))
+                emit_json({"error": error_msg})
                 return
             file_path = sys.argv[2]
             print(f"[Python Backend] Analyzing dataset: {file_path}")
             result = ml_backend.analyze_dataset(file_path)
             print(f"[Python Backend] Analysis result: {json.dumps(result, indent=2)}")
-            print(json.dumps(result))
+            emit_json(result)
             
         elif operation == 'train_model':
             if len(sys.argv) < 3:
                 error_msg = "train_model requires config argument"
                 print(f"[Python Backend] Error: {error_msg}")
-                print(json.dumps({"error": error_msg}))
+                emit_json({"error": error_msg})
                 return
             config = json.loads(sys.argv[2])
             print(f"[Python Backend] Training model with config: {json.dumps(config, indent=2)}")
             result = ml_backend.train_model(config)
             print(f"[Python Backend] Training result: {json.dumps(result, indent=2)}")
-            print(json.dumps(result))
+            emit_json(result)
             
         elif operation == 'explain_model':
             if len(sys.argv) < 3:
                 error_msg = "explain_model requires model_id argument"
                 print(f"[Python Backend] Error: {error_msg}")
-                print(json.dumps({"error": error_msg}))
+                emit_json({"error": error_msg})
                 return
             model_id = sys.argv[2]
             print(f"[Python Backend] Explaining model: {model_id}")
             result = ml_backend.explain_model(model_id)
             print(f"[Python Backend] Explanation result: {json.dumps(result, indent=2)}")
-            print(json.dumps(result))
+            emit_json(result)
             
         elif operation == 'quantum_experiment':
             if len(sys.argv) < 3:
                 error_msg = "quantum_experiment requires config argument"
                 print(f"[Python Backend] Error: {error_msg}")
-                print(json.dumps({"error": error_msg}))
+                emit_json({"error": error_msg})
                 return
             config = json.loads(sys.argv[2])
             print(f"[Python Backend] Running quantum experiment with config: {json.dumps(config, indent=2)}")
             result = quantum_backend.run_experiment(config)
             print(f"[Python Backend] Quantum result: {json.dumps(result, indent=2)}")
-            print(json.dumps(result))
+            emit_json(result)
             
         elif operation == 'train_rl_agent':
             if len(sys.argv) < 3:
                 error_msg = "train_rl_agent requires config argument"
                 print(f"[Python Backend] Error: {error_msg}")
-                print(json.dumps({"error": error_msg}))
+                emit_json({"error": error_msg})
                 return
             config = json.loads(sys.argv[2])
             print(f"[Python Backend] Training RL agent with config: {json.dumps(config, indent=2)}")
@@ -1538,56 +1582,56 @@ def main():
             if len(sys.argv) < 3:
                 error_msg = "get_rl_performance requires agent_id argument"
                 print(f"[Python Backend] Error: {error_msg}")
-                print(json.dumps({"error": error_msg}))
+                emit_json({"error": error_msg})
                 return
             agent_id = sys.argv[2]
             print(f"[Python Backend] Getting RL performance for agent: {agent_id}")
             result = rl_backend.get_performance(agent_id)
             print(f"[Python Backend] RL performance result: {json.dumps(result, indent=2)}")
-            print(json.dumps(result))
+            emit_json(result)
             
         elif operation == 'nlp_analyze':
             if len(sys.argv) < 3:
                 error_msg = "nlp_analyze requires config argument"
                 print(f"[Python Backend] Error: {error_msg}")
-                print(json.dumps({"error": error_msg}))
+                emit_json({"error": error_msg})
                 return
             config = json.loads(sys.argv[2])
             print(f"[Python Backend] Analyzing document with config: {json.dumps(config, indent=2)}")
             result = nlp_backend.analyze_document(config['content'], config['documentType'])
             print(f"[Python Backend] NLP analysis result: {json.dumps(result, indent=2)}")
-            print(json.dumps(result))
+            emit_json(result)
             
         elif operation == 'nlp_extract_features':
             if len(sys.argv) < 3:
                 error_msg = "nlp_extract_features requires config argument"
                 print(f"[Python Backend] Error: {error_msg}")
-                print(json.dumps({"error": error_msg}))
+                emit_json({"error": error_msg})
                 return
             config = json.loads(sys.argv[2])
             print(f"[Python Backend] Extracting features from documents: {len(config['documents'])} documents")
             result = nlp_backend.extract_features(config['documents'])
             print(f"[Python Backend] Feature extraction result: {json.dumps(result, indent=2)}")
-            print(json.dumps(result))
+            emit_json(result)
             
         elif operation == 'nlp_embeddings':
             if len(sys.argv) < 3:
                 error_msg = "nlp_embeddings requires config argument"
                 print(f"[Python Backend] Error: {error_msg}")
-                print(json.dumps({"error": error_msg}))
+                emit_json({"error": error_msg})
                 return
             config = json.loads(sys.argv[2])
             print(f"[Python Backend] Generating embeddings for text: {config['text'][:50]}...")
             result = nlp_backend._generate_embeddings(config['text'])
             print(f"[Python Backend] Embeddings result: {len(result)} dimensions")
-            print(json.dumps({'embeddings': result}))
+            emit_json({'embeddings': result})
 
         elif operation == 'gemini_suggest':
             # Usage: python ml_backend.py gemini_suggest '{"stats": ..., "question": ...}'
             if len(sys.argv) < 3:
                 error_msg = "gemini_suggest requires config argument"
                 print(f"[Python Backend] Error: {error_msg}")
-                print(json.dumps({"error": error_msg}))
+                emit_json({"error": error_msg})
                 return
             config = json.loads(sys.argv[2])
             stats = config.get('stats', {})
@@ -1596,24 +1640,24 @@ def main():
             print(f"[Python Backend] Getting Gemini advice for question: {question}")
             advice = gemini_suggest(prompt)
             print(f"[Python Backend] Gemini advice received: {advice[:100]}...")
-            print(json.dumps({'advice': advice}))
+            emit_json({'advice': advice})
             
         elif operation == 'algorithm_docs':
             # Return comprehensive algorithm documentation
             docs = get_algorithm_documentation()
-            print(json.dumps(docs))
+            emit_json(docs)
             
         else:
             error_msg = f'Unknown operation: {operation}'
             print(f"[Python Backend] Error: {error_msg}")
-            print(json.dumps({'error': error_msg}))
+            emit_json({'error': error_msg})
             
     except Exception as e:
         error_msg = f"Operation failed: {str(e)}"
         print(f"[Python Backend] Critical Error: {error_msg}")
         import traceback
         print(f"[Python Backend] Traceback: {traceback.format_exc()}")
-        print(json.dumps({'error': error_msg}))
+        emit_json({'error': error_msg})
 
 if __name__ == '__main__':
     main()
