@@ -223,3 +223,14 @@ Software Reliability Prediction Model for Imbalanced Datasets — Detailed Docum
   - Select dataset, algorithm, and sampling technique
   - Start Training and then view metrics in Trained Models section
 - (Optional) Run explain_model to obtain SHAP/LIME outputs for presentation
+# #   S e t t i n g   u p   G e m i n i   A P I   K e y 
+ 
+ T o   u s e   t h e   e n h a n c e d   G e m i n i   f e a t u r e s   f o r   d a t a   a n a l y s i s   a n d   m o d e l   t r a i n i n g : 
+ 
+ 1 .   G e t   y o u r   G e m i n i   A P I   k e y   f r o m   [ G o o g l e   A I   S t u d i o ] ( h t t p s : / / m a k e r s u i t e . g o o g l e . c o m / a p p / a p i k e y ) 
+ 2 .   O p e n   t h e   [ . e n v ] ( f i l e : / / / c % 3 A / U s e r s / w w w a n / D o c u m e n t s / G i t H u b / S o f t w a r e - R e a l i b i l i t y - P r e d i c t i o n - m o d e l - f o r - i m b a l a n c e - d a t a s e t / . e n v )   f i l e   i n   t h e   p r o j e c t   r o o t 
+ 3 .   R e p l a c e   \ y o u r _ g e m i n i _ a p i _ k e y _ h e r e \   w i t h   y o u r   a c t u a l   A P I   k e y 
+ 4 .   S a v e   t h e   f i l e 
+ 
+ T h e   a p p l i c a t i o n   w i l l   a u t o m a t i c a l l y   l o a d   t h e   A P I   k e y   f r o m   t h e   . e n v   f i l e   w h e n   r u n n i n g .  
+ 

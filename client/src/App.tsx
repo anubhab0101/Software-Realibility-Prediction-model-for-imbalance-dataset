@@ -7,9 +7,8 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import Dashboard from "@/pages/dashboard";
 import DataUpload from "@/pages/data-upload";
 import ModelTraining from "@/pages/model-training";
-import QuantumLab from "@/pages/quantum-lab";
-import FederatedLearning from "@/pages/federated-learning";
-import Monitoring from "@/pages/monitoring";
+import GeminiAssistant from "@/pages/gemini-assistant";
+import CodePrediction from "@/pages/code-prediction";
 import NotFound from "@/pages/not-found";
 import SidebarNav from "@/components/ui/sidebar-nav";
 
@@ -19,9 +18,8 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/data-upload" component={DataUpload} />
       <Route path="/model-training" component={ModelTraining} />
-      <Route path="/quantum-lab" component={QuantumLab} />
-      <Route path="/federated-learning" component={FederatedLearning} />
-      <Route path="/monitoring" component={Monitoring} />
+      <Route path="/code-prediction" component={CodePrediction} />
+      <Route path="/gemini-assistant" component={GeminiAssistant} />
       <Route component={NotFound} />
     </Switch>
   );

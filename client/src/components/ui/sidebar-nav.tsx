@@ -6,7 +6,7 @@ import {
   FlaskConical,
   Atom,
   Network,
-  Monitor,
+  Code,
   Home
 } from "lucide-react";
 
@@ -14,9 +14,7 @@ const navigation = [
   { name: "Dashboard", href: "/", icon: Home },
   { name: "Data Upload", href: "/data-upload", icon: Database },
   { name: "Model Training", href: "/model-training", icon: Brain },
-  { name: "Quantum Lab", href: "/quantum-lab", icon: Atom },
-  { name: "Federated Learning", href: "/federated-learning", icon: Network },
-  { name: "Monitoring", href: "/monitoring", icon: Monitor },
+  { name: "Code Prediction", href: "/code-prediction", icon: Code },
 ];
 
 export default function SidebarNav() {

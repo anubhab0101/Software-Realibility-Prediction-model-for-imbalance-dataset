@@ -1,3 +1,4 @@
+import { MonitoringService } from './services/monitoring-service';
 import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from 'express';
 import { registerRoutes } from './routes';
@@ -21,13 +22,13 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const duration = Date.now() - start;
     if (path.startsWith('/api')) {
-      let logLine = req.method + ' ' + path + ' ' + res.statusCode + ' in ' + duration + 'ms';
+      let logLine = ${req.method}   in ms;
       if (capturedJsonResponse) {
-        logLine += ' :: ' + JSON.stringify(capturedJsonResponse);
+        logLine +=  :: ;
       }
 
       if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + '...';
+        logLine = logLine.slice(0, 79) + '…';
       }
 
       log(logLine);
@@ -40,7 +41,9 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
-  // Code prediction service will be initialized here
+  // Initialize monitoring service
+  const monitoringService = new MonitoringService(parseInt(process.env.PORT || '5000', 10));
+  monitoringService.init(server);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -61,6 +64,6 @@ app.use((req, res, next) => {
     port,
     host: '127.0.0.1'
   }, () => {
-    log('serving on port ' + port);
+    log(serving on port );
   });
 })();

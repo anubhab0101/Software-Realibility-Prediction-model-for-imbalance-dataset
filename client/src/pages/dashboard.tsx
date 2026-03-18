@@ -17,13 +17,7 @@ export default function Dashboard() {
     queryKey: ["/api/models"],
   });
 
-  const { data: quantumExperiments } = useQuery({
-    queryKey: ["/api/quantum/experiments"],
-  });
 
-  const { data: federatedJobs } = useQuery({
-    queryKey: ["/api/federated/jobs"],
-  });
 
   const stats = [
     {
@@ -37,18 +31,6 @@ export default function Dashboard() {
       value: models?.length || 0,
       icon: Brain,
       description: "Trained models",
-    },
-    {
-      name: "Quantum Experiments",
-      value: quantumExperiments?.length || 0,
-      icon: Atom,
-      description: "Quantum ML experiments",
-    },
-    {
-      name: "Federated Jobs",
-      value: federatedJobs?.length || 0,
-      icon: Network,
-      description: "Distributed learning jobs",
     },
   ];
 
@@ -125,7 +107,7 @@ export default function Dashboard() {
             <CardTitle>Recent Models</CardTitle>
           </CardHeader>
           <CardContent>
-            {models?.slice(0, 5).map((model: any) => (
+            {(models as any[])?.slice(0, 5).map((model: any) => (
               <div key={model.id} className="flex items-center justify-between py-2">
                 <div>
                   <p className="font-medium">{model.name}</p>
@@ -141,26 +123,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Quantum Experiments</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {quantumExperiments?.slice(0, 5).map((experiment: any) => (
-              <div key={experiment.id} className="flex items-center justify-between py-2">
-                <div>
-                  <p className="font-medium">{experiment.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {experiment.qubits} qubits • {experiment.algorithm}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-medium capitalize">{experiment.status}</p>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+
       </div>
     </div>
   );

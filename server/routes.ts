@@ -7,15 +7,14 @@ import path from "path";
 import { storage } from "./storage";
 import { 
   insertDatasetSchema, insertModelSchema, insertQuantumExperimentSchema,
-  insertRlAgentSchema, insertFederatedJobSchema, insertNlpAnalysisSchema
+  insertRlAgentSchema, insertNlpAnalysisSchema
 } from "@shared/schema";
 import { z } from "zod";
 import { MLService } from "./services/ml-service";
-import { QuantumService } from "./services/quantum-service";
 import { RLService } from "./services/rl-service";
 import { BlockchainService } from "./services/blockchain-service";
 import { NLPService } from "./services/nlp-service";
-import { FederatedService } from "./services/federated-service";
+import { CodeAnalysisService } from "./services/code-analysis-service";
 
 // Ensure uploads directory exists
 const uploadDir = "uploads/";
@@ -37,11 +36,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Initialize services
   const mlService = new MLService();
-  const quantumService = new QuantumService();
   const rlService = new RLService();
   const blockchainService = new BlockchainService();
   const nlpService = new NLPService();
-  const federatedService = new FederatedService(wss, blockchainService);
+  const codeAnalysisService = new CodeAnalysisService();
+
+  // Gemini-powered ML advice endpoint
+  app.post("/api/ml/gemini-advice", async (req, res) => {
+    try {
+      const { stats, question } = req.body;
+      if (!stats) return res.status(400).json({ error: "Missing stats" });
+      const result = await mlService.getGeminiAdvice(stats, question);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Gemini advice failed" });
+    }
+  });
 
   // WebSocket connection handling (temporarily disabled)
   /*
@@ -180,33 +190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/quantum/experiments", async (req, res) => {
-    try {
-      const experimentData = insertQuantumExperimentSchema.parse(req.body);
-      const experiment = await storage.createQuantumExperiment(experimentData);
-      
-      // Execute quantum experiment asynchronously
-      quantumService.runExperiment(experiment.id, experimentData)
-        .then(async (results) => {
-          // Assert results is an object with executionTime
-          const typedResults = results as { executionTime?: number; [key: string]: any };
-          await storage.updateQuantumExperiment(experiment.id, {
-            status: "completed",
-            results: typedResults,
-            executionTime: typedResults.executionTime
-          });
-        })
-        .catch(async (error) => {
-          await storage.updateQuantumExperiment(experiment.id, {
-            status: "failed"
-          });
-        });
-
-      res.json(experiment);
-    } catch (error) {
-      res.status(400).json({ error: "Invalid quantum experiment configuration" });
-    }
-  });
+  
 
   // Reinforcement Learning routes
   app.get("/api/rl/agents", async (req, res) => {
@@ -232,39 +216,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Federated Learning routes
-  app.get("/api/federated/nodes", async (req, res) => {
-    try {
-      const nodes = await storage.getAllFederatedNodes();
-      res.json(nodes);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch federated nodes" });
-    }
-  });
-
-  app.get("/api/federated/jobs", async (req, res) => {
-    try {
-      const jobs = await storage.getAllFederatedJobs();
-      res.json(jobs);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch federated jobs" });
-    }
-  });
-
-  app.post("/api/federated/jobs", async (req, res) => {
-    try {
-      const jobData = insertFederatedJobSchema.parse(req.body);
-      const job = await storage.createFederatedJob(jobData);
-      
-      // Start federated learning job
-      federatedService.startFederatedJob(job.id, jobData);
-      
-      res.json(job);
-    } catch (error) {
-      res.status(400).json({ error: "Invalid federated job configuration" });
-    }
-  });
-
   // NLP Analysis routes
   app.post("/api/nlp/analyze", async (req, res) => {
     try {
@@ -284,17 +235,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Monitoring routes
-  app.get("/api/monitoring/metrics", async (req, res) => {
+  // Code prediction routes
+  app.post("/api/code-predict", upload.single("file"), async (req, res) => {
     try {
-      const { source, hours } = req.query;
-      const metrics = await storage.getMonitoringMetrics(
-        source as string,
-        hours ? parseInt(hours as string) : undefined
-      );
-      res.json(metrics);
+      const { type, url, code } = req.body;
+      
+      let result;
+      
+      if (type === "file" && req.file) {
+        // File upload analysis
+        result = await codeAnalysisService.analyzeCodeFile(req.file.path, req.file.originalname);
+      } else if (type === "github" && url) {
+        // GitHub repository analysis
+        result = await codeAnalysisService.analyzeGithubRepository(url);
+      } else if (type === "snippet" && code) {
+        // Code snippet analysis
+        const language = req.body.language || "javascript";
+        result = await codeAnalysisService.analyzeCodeSnippet(code, language);
+      } else {
+        return res.status(400).json({ error: "Invalid request type or missing data" });
+      }
+      
+      res.json(result);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch monitoring metrics" });
+      console.error('Code prediction error:', error);
+      res.status(500).json({ error: "Failed to analyze code" });
+    }
+  });
+
+  app.get("/api/predictions", async (req, res) => {
+    try {
+      // Return prediction history (would come from database in full implementation)
+      const mockHistory = [
+        {
+          id: "1",
+          fileName: "example.py",
+          type: "file",
+          language: "python",
+          performanceMetrics: { overallScore: 75 },
+          timestamp: new Date(Date.now() - 3600000).toISOString()
+        },
+        {
+          id: "2",
+          fileName: "react-app",
+          type: "github",
+          language: "javascript",
+          performanceMetrics: { overallScore: 82 },
+          timestamp: new Date(Date.now() - 7200000).toISOString()
+        }
+      ];
+      
+      res.json(mockHistory);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch prediction history" });
+    }
+  });
+
+  app.get("/api/predictions/:id", async (req, res) => {
+    try {
+      // Return specific prediction (mock implementation)
+      const mockPrediction = {
+        id: req.params.id,
+        fileName: "example.js",
+        type: "file",
+        language: "javascript",
+        performanceMetrics: { overallScore: 68 },
+        timestamp: new Date().toISOString()
+      };
+      
+      res.json(mockPrediction);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch prediction" });
     }
   });
 
@@ -305,14 +316,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       timestamp: new Date().toISOString(),
       services: {
         ml: mlService.isHealthy(),
-        quantum: quantumService.isHealthy(),
         rl: rlService.isHealthy(),
         blockchain: blockchainService.isHealthy(),
-        nlp: nlpService.isHealthy(),
-        federated: federatedService.isHealthy()
+        nlp: nlpService.isHealthy()
       }
     });
   });
 
   return httpServer;
 }
+

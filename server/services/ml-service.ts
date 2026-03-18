@@ -40,9 +40,14 @@ export class MLService {
   }
 
   async analyzeDataset(filePath: string) {
+    console.log(`[MLService] Starting dataset analysis for file: ${filePath}`);
+    
     try {
       const moduleDir = path.dirname(fileURLToPath(import.meta.url));
       const backendPath = path.join(moduleDir, "../../ml_backend.py");
+      
+      console.log(`[MLService] Using Python path: ${this.pythonPath}`);
+      console.log(`[MLService] Backend path: ${backendPath}`);
 
       const result = await new Promise<any>((resolve, reject) => {
         const processRef = spawn(this.pythonPath, [
@@ -56,33 +61,53 @@ export class MLService {
 
         processRef.stdout.on("data", (data) => {
           output += data.toString();
+          console.log(`[Python STDOUT] ${data.toString()}`);
         });
 
         processRef.stderr.on("data", (data) => {
           errorOutput += data.toString();
+          console.log(`[Python STDERR] ${data.toString()}`);
         });
 
         processRef.on("close", (code) => {
+          console.log(`[MLService] Python process exited with code: ${code}`);
+          console.log(`[MLService] Output length: ${output.length} chars`);
+          console.log(`[MLService] Error output length: ${errorOutput.length} chars`);
+          
           if (code === 0) {
             try {
               const parsed = JSON.parse(output);
+              console.log(`[MLService] Successfully parsed Python output`);
               resolve(parsed);
-            } catch {
-              reject(new Error("Failed to parse analysis results"));
+            } catch (parseError) {
+              console.error(`[MLService] Failed to parse analysis results:`, parseError);
+              console.error(`[MLService] Raw output: ${output}`);
+              reject(new Error(`Failed to parse analysis results: ${parseError}`));
             }
           } else {
-            reject(new Error(errorOutput || output || "Python analysis failed"));
+            const errorMessage = errorOutput || output || "Python analysis failed with exit code " + code;
+            console.error(`[MLService] Python analysis failed: ${errorMessage}`);
+            reject(new Error(errorMessage));
           }
         });
       });
 
       if (result && !result.error) {
+        console.log(`[MLService] Python analysis successful`);
         return result;
+      } else {
+        console.log(`[MLService] Python returned error, falling back to Node analysis`);
+        if (result?.error) {
+          console.log(`[MLService] Python error: ${result.error}`);
+        }
       }
 
       // Fall back to Node-based CSV analysis if Python returns an error payload
+      console.log(`[MLService] Using Node-based CSV analysis fallback`);
       return await this.analyzeCsvWithNode(filePath);
-    } catch (_err) {
+    } catch (error) {
+      console.error(`[MLService] Error in Python analysis:`, error);
+      console.log(`[MLService] Falling back to Node-based CSV analysis`);
       // Fall back to Node-based CSV analysis if Python is not available
       return await this.analyzeCsvWithNode(filePath);
     }
@@ -254,50 +279,96 @@ export class MLService {
   }
 
   async trainModel(modelId: string, modelConfig: any) {
+    console.log(`[MLService] Starting model training for model: ${modelId}`);
+    console.log(`[MLService] Model config:`, JSON.stringify(modelConfig, null, 2));
+    
     try {
       const moduleDir = path.dirname(fileURLToPath(import.meta.url));
       const backendPath = path.join(moduleDir, "../../ml_backend.py");
+      
+      console.log(`[MLService] Using Python path: ${this.pythonPath}`);
+      console.log(`[MLService] Backend path: ${backendPath}`);
+      
+      // Get dataset file path from storage
+      const dataset = await storage.getDataset(modelConfig.datasetId);
+      const datasetPath = dataset?.filePath;
+      
+      if (!datasetPath) {
+        throw new Error(`Dataset file path not found for dataset ID: ${modelConfig.datasetId}`);
+      }
+      
+      const trainingConfig = {
+        modelId,
+        ...modelConfig,
+        datasetPath: datasetPath
+      };
+      
+      console.log(`[MLService] Training config:`, JSON.stringify(trainingConfig, null, 2));
+      
       const result = await new Promise<any>((resolve, reject) => {
         const processRef = spawn(this.pythonPath, [
           backendPath,
           "train_model",
-          JSON.stringify({ modelId, ...modelConfig })
+          JSON.stringify(trainingConfig)
         ]);
 
         let output = "";
         let errorOutput = "";
 
-        processRef.stdout.on("data", (data) => { output += data.toString(); });
-        processRef.stderr.on("data", (data) => { errorOutput += data.toString(); });
+        processRef.stdout.on("data", (data) => { 
+          output += data.toString(); 
+          console.log(`[Python Training STDOUT] ${data.toString()}`);
+        });
+        processRef.stderr.on("data", (data) => { 
+          errorOutput += data.toString(); 
+          console.log(`[Python Training STDERR] ${data.toString()}`);
+        });
 
         processRef.on("close", (code) => {
+          console.log(`[MLService] Python training process exited with code: ${code}`);
+          
           if (code === 0) {
             const text = output.trim();
             try {
               resolve(JSON.parse(text));
               return;
-            } catch {
+            } catch (parseError1) {
+              console.log(`[MLService] First parsing attempt failed, trying to extract JSON`);
               const start = text.lastIndexOf("{");
               const end = text.lastIndexOf("}");
               if (start !== -1 && end !== -1 && end > start) {
                 try {
                   resolve(JSON.parse(text.slice(start, end + 1)));
                   return;
-                } catch {}
+                } catch (parseError2) {
+                  console.error(`[MLService] Second parsing attempt failed:`, parseError2);
+                }
               }
-              reject(new Error("Failed to parse training results"));
+              console.error(`[MLService] Failed to parse training results:`, parseError1);
+              console.error(`[MLService] Raw output: ${text}`);
+              reject(new Error(`Failed to parse training results: ${parseError1}`));
             }
           } else {
-            reject(new Error(errorOutput || output || "Python training failed"));
+            const errorMessage = errorOutput || output || "Python training failed with exit code " + code;
+            console.error(`[MLService] Python training failed: ${errorMessage}`);
+            reject(new Error(errorMessage));
           }
         });
       });
 
       if (!result || result.error) {
+        console.log(`[MLService] Python training failed, falling back to Node baseline`);
+        if (result?.error) {
+          console.log(`[MLService] Python training error: ${result.error}`);
+        }
         return await this.trainWithNodeBaseline(modelId, modelConfig);
       }
+      
+      console.log(`[MLService] Python training successful`);
       return result;
-    } catch {
+    } catch (error) {
+      console.error(`[MLService] Error in Python training:`, error);
+      console.log(`[MLService] Falling back to Node baseline training`);
       return await this.trainWithNodeBaseline(modelId, modelConfig);
     }
   }
@@ -389,5 +460,9 @@ export class MLService {
         }
       });
     });
+  }
+
+  isHealthy(): boolean {
+    return true; // TODO: Add ML service health checks
   }
 }
