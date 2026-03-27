@@ -37,6 +37,7 @@ export const models = pgTable("models", {
   recall: real("recall"),
   f1Score: real("f1_score"),
   mcc: real("mcc"),
+  aucRoc: real("auc_roc"),
   confusionMatrix: jsonb("confusion_matrix"),
   featureImportance: jsonb("feature_importance"),
   modelPath: text("model_path"),
