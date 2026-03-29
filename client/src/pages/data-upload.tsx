@@ -332,7 +332,7 @@ export default function DataUpload() {
                 },
                 {
                   title: "Balanced profiling",
-                  description: "Review imbalance after upload so sampling and ensemble choices stay grounded in data.",
+                  description: "Review imbalance after upload so sampling and MLP + Gemini choices stay grounded in data.",
                   icon: BarChart3,
                 },
                 {

@@ -13,7 +13,7 @@ export default function GeminiAssistant() {
 
   const promptSuggestions = [
     "Suggest improvements for an imbalanced defect dataset before training.",
-    "Explain why my ensemble model might outperform a single classifier.",
+    "Explain why MLP + Gemini can outperform other classifiers on this dataset.",
     "Give me steps to improve recall without losing too much precision.",
   ];
 

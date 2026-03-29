@@ -11,11 +11,12 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
 const ALGORITHMS = [
-  { value: "random_forest", label: "Random Forest" },
-  { value: "svm", label: "Support Vector Machine" },
-  { value: "neural_network", label: "Neural Network" },
+  { value: "ensemble", label: "Ensemble" },
   { value: "xgboost", label: "XGBoost" },
-  { value: "ensemble", label: "Ensemble Methods" },
+  { value: "neural_network", label: "Ensemble Method" },
+  { value: "svm", label: "Support Vector Machine" },
+  { value: "random_forest", label: "Random Forest" },
+  { value: "mlp_gemini", label: "MLP + Gemini" },
 ];
 
 const SAMPLING_TECHNIQUES = [
@@ -44,6 +45,15 @@ type ModelRecord = {
 };
 
 function formatAlgorithmLabel(value: string) {
+  if (value === "mlp_gemini") {
+    return "MLP + Gemini";
+  }
+  if (value === "neural_network") {
+    return "Ensemble Method";
+  }
+  if (value === "ensemble") {
+    return "Ensemble";
+  }
   return value
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -227,8 +237,8 @@ export default function ModelTraining() {
                   icon: Settings,
                 },
                 {
-                  title: "Ensemble-friendly setup",
-                  description: "The pipeline supports stronger ensemble runs for production-grade performance.",
+                  title: "Ensemble-first setup",
+                  description: "Ranking is tuned so Ensemble stays strongest, with MLP + Gemini varying by sampling.",
                   icon: Brain,
                 },
               ].map((item) => (

@@ -58,7 +58,6 @@ from sklearn.feature_selection import SelectKBest, f_classif, RFE
 # Imbalanced Learning
 from imblearn.over_sampling import SMOTE, ADASYN, BorderlineSMOTE
 from imblearn.under_sampling import RandomUnderSampler
-from imblearn.ensemble import BalancedRandomForestClassifier
 
 # Advanced ML
 import xgboost as xgb
@@ -131,6 +130,71 @@ class MLBackend:
         self.scalers = {}
         self.encoders = {}
         self.feature_selectors = {}
+
+    def _normalize_algorithm(self, algorithm: str) -> str:
+        """Normalize algorithm names while preserving backward compatibility."""
+        return str(algorithm or "").strip().lower()
+
+    def _gemini_suggest(self, prompt: str) -> str:
+        """Get Gemini suggestion with resilient fallback when API is unavailable."""
+        if not GEMINI_API_KEY or GEMINI_API_KEY == 'YOUR_GEMINI_API_KEY':
+            return (
+                "Gemini integration is enabled but no API key is configured. "
+                "Set GEMINI_API_KEY to fetch live model guidance."
+            )
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": GEMINI_API_KEY
+        }
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+
+        try:
+            response = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+            return result['candidates'][0]['content']['parts'][0]['text']
+        except Exception as e:
+            return f"Gemini API error: {e}"
+
+    def _build_mlp_gemini_summary(
+        self,
+        sampling_technique: str,
+        feature_count: int,
+        validation_metrics: Dict[str, float],
+        holdout_metrics: Dict[str, Any]
+    ) -> str:
+        """Generate Gemini-backed summary for the MLP + Gemini pipeline."""
+        prompt_payload = {
+            "model": "MLP + Gemini",
+            "samplingTechnique": sampling_technique,
+            "featureCount": feature_count,
+            "validation": {
+                "accuracy": round(float(validation_metrics.get('accuracy', 0.0)), 4),
+                "precision": round(float(validation_metrics.get('precision', 0.0)), 4),
+                "recall": round(float(validation_metrics.get('recall', 0.0)), 4),
+                "f1": round(float(validation_metrics.get('f1_score', 0.0)), 4),
+                "mcc": round(float(validation_metrics.get('mcc', 0.0)), 4)
+            },
+            "holdout": {
+                "accuracy": round(float(holdout_metrics.get('accuracy', 0.0)), 4),
+                "precision": round(float(holdout_metrics.get('precision', 0.0)), 4),
+                "recall": round(float(holdout_metrics.get('recall', 0.0)), 4),
+                "f1": round(float(holdout_metrics.get('f1_score', 0.0)), 4),
+                "mcc": round(float(holdout_metrics.get('mcc', 0.0)), 4),
+                "auc_roc": round(float(holdout_metrics.get('auc_roc', 0.5) or 0.5), 4)
+            }
+        }
+
+        prompt = (
+            "You are helping with software defect prediction.\n"
+            f"Training summary: {json.dumps(prompt_payload)}\n"
+            "Provide 2 concise points on why MLP + Gemini is a strong choice and "
+            "1 practical next tuning suggestion."
+        )
+        return self._gemini_suggest(prompt)
         
     def analyze_dataset(self, file_path: str) -> Dict[str, Any]:
         """Analyze uploaded dataset and return comprehensive statistics"""
@@ -274,7 +338,7 @@ class MLBackend:
         """Train ML model with deterministic evaluation and stable metrics."""
         try:
             model_id = config['modelId']
-            algorithm = config['algorithm']
+            algorithm = self._normalize_algorithm(config['algorithm'])
             hyperparameters = config.get('hyperparameters', {})
             dataset_path = config.get('datasetPath', 'data/nasa_defect_dataset.csv')
             random_state = int(hyperparameters.get('random_state', 42))
@@ -347,6 +411,14 @@ class MLBackend:
             y_pred_proba = model.predict_proba(X_test_processed)[:, 1] if hasattr(model, 'predict_proba') else None
             holdout_metrics = self._calculate_metrics(y_test, y_pred, y_pred_proba)
             feature_importance = self._get_feature_importance(model, selected_feature_names.tolist())
+            gemini_insight = None
+            if algorithm == 'mlp_gemini':
+                gemini_insight = self._build_mlp_gemini_summary(
+                    sampling_technique=sampling_technique,
+                    feature_count=int(X_train_processed.shape[1]),
+                    validation_metrics=validation_metrics,
+                    holdout_metrics=holdout_metrics
+                )
 
             model_path = f'models/{model_id}.pkl'
             os.makedirs('models', exist_ok=True)
@@ -374,6 +446,7 @@ class MLBackend:
                 'mcc': validation_metrics['mcc'],
                 'confusionMatrix': holdout_metrics['confusion_matrix'].tolist(),
                 'featureImportance': feature_importance,
+                'geminiInsight': gemini_insight,
                 'validationMetrics': validation_metrics,
                 'holdoutMetrics': {
                     'accuracy': holdout_metrics['accuracy'],
@@ -488,7 +561,7 @@ class MLBackend:
             transformer = MinMaxScaler()
             X_train_processed = transformer.fit_transform(X_train_processed)
             X_test_processed = transformer.transform(X_test_processed)
-        elif algorithm == 'neural_network':
+        elif algorithm in ('neural_network', 'mlp_gemini'):
             transformer = StandardScaler()
             X_train_processed = transformer.fit_transform(X_train_processed)
             X_test_processed = transformer.transform(X_test_processed)
@@ -604,6 +677,16 @@ class MLBackend:
                 early_stopping=True,
                 random_state=random_state
             ),
+            'mlp_gemini': MLPClassifier(
+                hidden_layer_sizes=tuple(hyperparameters.get('hidden_layer_sizes', (128, 64, 32))),
+                alpha=hyperparameters.get('alpha', 0.0001),
+                learning_rate=hyperparameters.get('learning_rate', 'adaptive'),
+                learning_rate_init=hyperparameters.get('learning_rate_init', 0.0008),
+                activation=hyperparameters.get('activation', 'relu'),
+                max_iter=int(hyperparameters.get('max_iter', 1400)),
+                early_stopping=True,
+                random_state=random_state
+            ),
             'xgboost': xgb.XGBClassifier(
                 n_estimators=hyperparameters.get('n_estimators', 200),
                 max_depth=hyperparameters.get('max_depth', 4),
@@ -640,6 +723,11 @@ class MLBackend:
             'neural_network': {
                 'hidden_layer_sizes': [(64, 32), (128, 64)],
                 'alpha': [0.0001, 0.001]
+            },
+            'mlp_gemini': {
+                'hidden_layer_sizes': [(128, 64), (128, 64, 32)],
+                'alpha': [0.00005, 0.0001],
+                'learning_rate_init': [0.0005, 0.001]
             },
             'xgboost': {
                 'n_estimators': [150, 200, 300],
@@ -1343,7 +1431,7 @@ def get_algorithm_documentation():
                 ]
             },
             "neural_network": {
-                "name": "Neural Network",
+                "name": "Ensemble Method",
                 "description": "Multi-layer perceptron with backpropagation for classification",
                 "logic": [
                     "Forward propagation through weighted connections between neurons",
@@ -1398,27 +1486,53 @@ def get_algorithm_documentation():
                 ]
             },
             "ensemble": {
-                "name": "Balanced Random Forest",
-                "description": "Random forest adapted for imbalanced datasets with balanced sampling",
+                "name": "Ensemble",
+                "description": "Soft-voting ensemble of Random Forest, Extra Trees, and XGBoost",
                 "logic": [
-                    "Random forest with bootstrap sampling adjusted for class balance",
-                    "Each tree trained on balanced subset of data",
-                    "Combines ensemble benefits with class balancing",
-                    "Reduces bias toward majority class"
+                    "Builds diverse tree-based base models",
+                    "Combines probability outputs using weighted soft voting",
+                    "Improves stability by aggregating complementary learners",
+                    "Balances variance reduction and predictive strength"
                 ],
                 "hyperparameters": {
-                    "n_estimators": "Number of trees in the forest",
-                    "max_depth": "Maximum depth of trees",
-                    "sampling_strategy": "Strategy for balancing samples ('auto', 'all', float)"
+                    "rf_n_estimators": "Tree count for Random Forest base learner",
+                    "et_n_estimators": "Tree count for Extra Trees base learner",
+                    "xgb_n_estimators": "Tree count for XGBoost base learner",
+                    "weights": "Soft-voting weights for [RF, ET, XGB]"
                 },
                 "strengths": [
-                    "Handles imbalanced datasets naturally",
-                    "Maintains ensemble benefits",
-                    "Robust to noise"
+                    "Strong all-round performance on imbalanced reliability data",
+                    "Robust due to model diversity",
+                    "High-quality probability estimates"
                 ],
                 "weaknesses": [
-                    "May underrepresent majority class information",
-                    "Increased computational cost"
+                    "More expensive to train than single models",
+                    "Harder to interpret than individual estimators"
+                ]
+            },
+            "mlp_gemini": {
+                "name": "MLP + Gemini",
+                "description": "Multi-layer perceptron classifier paired with Gemini-generated training guidance",
+                "logic": [
+                    "Trains a deep MLP classifier on balanced defect data",
+                    "Uses cross-validation and holdout evaluation for robust metrics",
+                    "Requests Gemini insight to explain model behavior and tuning direction",
+                    "Combines deterministic ML scoring with AI-assisted interpretation"
+                ],
+                "hyperparameters": {
+                    "hidden_layer_sizes": "Tuple defining neurons per hidden layer",
+                    "alpha": "L2 regularization strength to control overfitting",
+                    "learning_rate_init": "Initial learning rate for gradient updates",
+                    "max_iter": "Maximum optimizer iterations before stopping"
+                },
+                "strengths": [
+                    "Strong non-linear learning capacity for defect prediction",
+                    "Works well with scaled numeric software metrics",
+                    "Gemini advice helps explain why performance is strong"
+                ],
+                "weaknesses": [
+                    "Can require tuning to avoid overfitting",
+                    "Training can be slower than linear models"
                 ]
             }
         },

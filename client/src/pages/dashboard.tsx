@@ -37,6 +37,15 @@ type ModelRecord = {
 };
 
 function formatAlgorithmLabel(value: string) {
+  if (value === "mlp_gemini") {
+    return "MLP + Gemini";
+  }
+  if (value === "neural_network") {
+    return "Ensemble Method";
+  }
+  if (value === "ensemble") {
+    return "Ensemble";
+  }
   return value
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))

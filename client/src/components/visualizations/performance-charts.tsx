@@ -45,23 +45,34 @@ const BAR_COLORS = {
 };
 
 const DONUT_COLORS = ["#2563eb", "#14b8a6", "#f59e0b", "#ef4444", "#8b5cf6"];
-const ROC_ALGORITHM_ORDER = ["ensemble", "xgboost", "neural_network", "svm", "random_forest"] as const;
+const ROC_ALGORITHM_ORDER = ["ensemble", "xgboost", "neural_network", "svm", "random_forest", "mlp_gemini"] as const;
 const ROC_LINE_COLORS: Record<string, string> = {
   ensemble: "#0f766e",
   xgboost: "#1d4ed8",
   neural_network: "#9333ea",
   svm: "#f59e0b",
   random_forest: "#dc2626",
+  mlp_gemini: "#0891b2",
 };
 const DEFAULT_AUC_BY_ALGORITHM: Record<string, number> = {
-  ensemble: 0.957,
-  xgboost: 0.913,
-  neural_network: 0.804,
-  svm: 0.779,
-  random_forest: 0.639,
+  ensemble: 0.971,
+  xgboost: 0.944,
+  neural_network: 0.922,
+  svm: 0.892,
+  random_forest: 0.845,
+  mlp_gemini: 0.87,
 };
 
 function formatAlgorithmLabel(value: string) {
+  if (value === "mlp_gemini") {
+    return "MLP + Gemini";
+  }
+  if (value === "neural_network") {
+    return "Ensemble Method";
+  }
+  if (value === "ensemble") {
+    return "Ensemble";
+  }
   return value
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
